@@ -1,0 +1,22 @@
+cache/
+out/
+broadcast/
+artifacts/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Foundry/script artifacts
+broadcast/**/dry-run/
+*.gas-snapshot
+
+# Coverage
+coverage/
+lcov.info
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
