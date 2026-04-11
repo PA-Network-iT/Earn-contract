@@ -5,9 +5,13 @@ import {Script} from "forge-std/Script.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {EarnShareToken} from "src/EarnShareToken.sol";
 
+/// @notice EN: Broadcast script that deploys the non-transferable share token implementation and proxy.
+/// @custom:fa اسکریپت برادکست برای دیپلوی پیاده‌سازی و پراکسی توکن سهم غیرقابل‌انتقال.
 contract DeployEarnShareTokenScript is Script {
     error ZeroAddress(string field);
 
+    /// @notice EN: Deploys `EarnShareToken`, initializes its proxy with the core controller, and returns both addresses.
+    /// @custom:fa قرارداد `EarnShareToken` را دیپلوی می‌کند، پراکسی را با کنترلر هسته مقداردهی می‌کند و هر دو آدرس را برمی‌گرداند.
     function run() external returns (address proxyAddr, address implementationAddr) {
         address coreProxy = vm.envAddress("EARN_PROXY");
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");

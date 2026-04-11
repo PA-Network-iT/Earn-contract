@@ -10,7 +10,8 @@ error InsufficientUnlockedBalance(address account, uint256 requested, uint256 av
 error InsufficientLockedBalance(address account, uint256 requested, uint256 lockedAmount);
 error UnauthorizedCore(address caller);
 
-/// @notice Non transferable share token managed by `EarnCore`.
+/// @notice EN: Non-transferable share token managed by `EarnCore`.
+/// @custom:fa توکن سهم غیرقابل‌انتقال که توسط `EarnCore` مدیریت می‌شود.
 contract EarnShareToken is Initializable, ERC20Upgradeable, OwnableUpgradeable {
     mapping(address account => uint256 amount) private _lockedBalances;
 
@@ -30,6 +31,7 @@ contract EarnShareToken is Initializable, ERC20Upgradeable, OwnableUpgradeable {
     }
 
     /// @notice Initializes the token metadata and controller.
+    /// @custom:fa متادیتای توکن و کنترلر اصلی آن را مقداردهی اولیه می‌کند.
     /// @param name_ Token name.
     /// @param symbol_ Token symbol.
     /// @param coreController Core contract that owns token operations.
@@ -91,6 +93,7 @@ contract EarnShareToken is Initializable, ERC20Upgradeable, OwnableUpgradeable {
     }
 
     /// @notice Locks shares on an account.
+    /// @custom:fa مقدار مشخصی از shareهای یک حساب را برای جریان برداشت lock می‌کند.
     /// @param account Account to lock.
     /// @param amount Amount to lock.
     function lock(address account, uint256 amount) external onlyCore {
@@ -104,6 +107,7 @@ contract EarnShareToken is Initializable, ERC20Upgradeable, OwnableUpgradeable {
     }
 
     /// @notice Unlocks shares on an account.
+    /// @custom:fa shareهای lock‌شده یک حساب را پس از لغو برداشت آزاد می‌کند.
     /// @param account Account to unlock.
     /// @param amount Amount to unlock.
     function unlock(address account, uint256 amount) external onlyCore {
@@ -117,6 +121,7 @@ contract EarnShareToken is Initializable, ERC20Upgradeable, OwnableUpgradeable {
     }
 
     /// @dev Blocks transfers between end users.
+    /// @custom:fa انتقال بین کاربران نهایی را مسدود می‌کند تا share token فقط mint/burn کنترل‌شده داشته باشد.
     function _update(address from, address to, uint256 value) internal override {
         if (from != address(0) && to != address(0)) {
             revert TransfersDisabled();

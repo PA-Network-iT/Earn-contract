@@ -4,6 +4,8 @@ pragma solidity ^0.8.30;
 import {EarnTestBase} from "test/shared/EarnTestBase.sol";
 import {SponsorRewardNotClaimable, InvalidSponsorRate, LotView} from "test/shared/interfaces/EarnSpecInterfaces.sol";
 
+/// @notice EN: Unit tests for sponsor assignment, rate changes, accrual, funding, and claiming.
+/// @custom:fa تست‌های واحد برای انتساب sponsor، تغییر نرخ، accrual، تامین بودجه و claim پاداش.
 contract SponsorAccrualTest is EarnTestBase {
     function test_sponsorRateRevertsAboveDefaultConfiguredMaximum() public {
         assertEq(core.maxSponsorRateBps(), 2_000);

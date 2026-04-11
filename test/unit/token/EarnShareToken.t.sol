@@ -12,6 +12,8 @@ import {
 } from "test/shared/interfaces/EarnSpecInterfaces.sol";
 import {EarnShareToken} from "src/EarnShareToken.sol";
 
+/// @notice EN: Unit tests for share-token metadata, transfer blocking, locks, unlocks, and core-only mint/burn access.
+/// @custom:fa تست‌های واحد برای متادیتای share token، مسدود بودن transfer، lock/unlock و دسترسی mint/burn فقط توسط core.
 contract EarnShareTokenTest is Test {
     address internal coreController = makeAddr("coreController");
     address internal alice = makeAddr("alice");

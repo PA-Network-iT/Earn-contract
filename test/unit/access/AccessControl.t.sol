@@ -9,12 +9,16 @@ import {IEarnCoreSpec} from "test/shared/interfaces/EarnSpecInterfaces.sol";
 import {
     UnauthorizedUpgrade,
     InvalidShareToken,
-    ShareTokenAlreadySet
+    ShareTokenAlreadySet,
+    InvalidAdmin,
+    InvalidAsset
 } from "test/shared/interfaces/EarnSpecInterfaces.sol";
 import {EarnCore} from "src/EarnCore.sol";
 import {EarnShareToken} from "src/EarnShareToken.sol";
 import {EarnCoreV2Mock} from "test/unit/upgrade/mocks/EarnCoreV2Mock.sol";
 
+/// @notice EN: Unit tests for role gating, initialization guards, share-token binding, and upgrade authorization.
+/// @custom:fa تست‌های واحد برای کنترل نقش‌ها، guardهای initialize، اتصال share token و مجوز upgrade.
 contract AccessControlTest is EarnTestBase {
     address internal parameterManager = makeAddr("parameterManager");
     address internal treasuryManager = makeAddr("treasuryManager");
@@ -36,6 +40,20 @@ contract AccessControlTest is EarnTestBase {
         assertTrue(core.hasRole(core.REPORTER_ROLE(), admin));
         assertTrue(core.hasRole(core.PAUSER_ROLE(), admin));
         assertTrue(core.hasRole(core.UPGRADER_ROLE(), admin));
+    }
+
+    function test_initializeRejectsZeroAdmin() public {
+        EarnCore coreImplementation = new EarnCore();
+
+        vm.expectRevert(abi.encodeWithSelector(InvalidAdmin.selector, address(0)));
+        new ERC1967Proxy(address(coreImplementation), abi.encodeCall(EarnCore.initialize, (address(0), asset)));
+    }
+
+    function test_initializeRejectsZeroAsset() public {
+        EarnCore coreImplementation = new EarnCore();
+
+        vm.expectRevert(abi.encodeWithSelector(InvalidAsset.selector, address(0)));
+        new ERC1967Proxy(address(coreImplementation), abi.encodeCall(EarnCore.initialize, (admin, address(0))));
     }
 
     function test_scopedRolesGateAdminFunctions() public {

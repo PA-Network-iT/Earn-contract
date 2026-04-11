@@ -3,6 +3,8 @@ pragma solidity ^0.8.30;
 
 import {IEarnShareTokenSpec, NotImplemented} from "test/shared/interfaces/EarnSpecInterfaces.sol";
 
+/// @notice EN: Minimal share-token stub that returns defaults or reverts for unimplemented mutating behavior.
+/// @custom:fa stub حداقلی share token که برای رفتارهای تغییر‌دهنده پیاده‌نشده revert می‌کند و بقیه موارد را پیش‌فرض برمی‌گرداند.
 contract UnimplementedEarnShareToken is IEarnShareTokenSpec {
     function name() external pure returns (string memory) {
         return "";

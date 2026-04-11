@@ -4,6 +4,8 @@ pragma solidity ^0.8.30;
 import {EarnTestBase} from "test/shared/EarnTestBase.sol";
 import {Blacklisted} from "test/shared/interfaces/EarnSpecInterfaces.sol";
 
+/// @notice EN: Unit tests for blacklist restrictions and historical accrual caps.
+/// @custom:fa تست‌های واحد برای محدودیت‌های blacklist و capهای تاریخی accrual.
 contract ComplianceTest is EarnTestBase {
     function test_blacklistedUserCannotDeposit() public {
         vm.prank(admin);
@@ -188,6 +190,69 @@ contract ComplianceTest is EarnTestBase {
         skip(30 days);
 
         assertApproxEqAbs(core.sponsorAccount(sponsor).accrued, accruedAtBlacklist, 1);
+    }
+
+    function test_cancelWithdrawalAfterUnblacklistDoesNotRestoreCappedSponsorShares() public {
+        vm.startPrank(admin);
+        core.setSponsor(alice, sponsor);
+        core.setSponsorRate(sponsor, 1_000);
+        core.setApr(APR_20_PERCENT_BPS);
+        vm.stopPrank();
+
+        skip(24 hours);
+
+        vm.prank(alice);
+        uint256 lotId = core.deposit(1_000e6, alice);
+
+        skip(30 days);
+
+        vm.prank(admin);
+        core.setBlacklist(alice, true);
+
+        uint256 accruedAtBlacklist = core.sponsorAccount(sponsor).accrued;
+
+        skip(30 days);
+
+        vm.prank(admin);
+        core.setBlacklist(alice, false);
+
+        vm.prank(alice);
+        core.requestWithdrawal(lotId, 500e6);
+
+        vm.prank(alice);
+        core.cancelWithdrawal();
+
+        skip(30 days);
+
+        assertApproxEqAbs(core.sponsorAccount(sponsor).accrued, accruedAtBlacklist, 1);
+    }
+
+    function test_reblacklistingPreservesExistingLotYieldCap() public {
+        vm.prank(admin);
+        core.setApr(APR_20_PERCENT_BPS);
+
+        skip(24 hours);
+
+        vm.prank(alice);
+        core.deposit(1_000e6, alice);
+
+        skip(90 days);
+
+        vm.prank(admin);
+        core.setBlacklist(alice, true);
+
+        uint256 liabilityAtFirstBlacklist = core.totals().userYieldLiability;
+        assertGt(liabilityAtFirstBlacklist, 0);
+
+        vm.prank(admin);
+        core.setBlacklist(alice, false);
+
+        skip(180 days);
+
+        vm.prank(admin);
+        core.setBlacklist(alice, true);
+
+        assertApproxEqAbs(core.totals().userYieldLiability, liabilityAtFirstBlacklist, 1);
     }
 
     function test_blacklistedSponsorCannotClaimReward() public {

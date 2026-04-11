@@ -25,7 +25,11 @@ error PendingAprUpdate(uint256 effectiveAt);
 error InvalidShareToken(address shareToken);
 error ShareTokenAlreadySet(address shareToken);
 error InvalidMinimumDeposit(uint256 minimumAssets);
+error InvalidAdmin(address admin);
+error InvalidAsset(address asset);
 
+/// @notice EN: Test-side view of a core lot; mirrors `EarnTypes.Lot`.
+/// @custom:fa نمای تستی یک lot در هسته که با `EarnTypes.Lot` هم‌ساختار است.
 struct LotView {
     uint256 id;
     address owner;
@@ -42,6 +46,8 @@ struct LotView {
     address sponsor;
 }
 
+/// @notice EN: Test-side view of a withdrawal request; mirrors `EarnTypes.WithdrawalRequest`.
+/// @custom:fa نمای تستی یک درخواست برداشت که با `EarnTypes.WithdrawalRequest` هم‌ساختار است.
 struct WithdrawalRequestView {
     uint256 id;
     address owner;
@@ -54,6 +60,8 @@ struct WithdrawalRequestView {
     bool cancelled;
 }
 
+/// @notice EN: Test-side view of sponsor accounting; mirrors `EarnTypes.SponsorAccount`.
+/// @custom:fa نمای تستی حسابداری sponsor که با `EarnTypes.SponsorAccount` هم‌ساختار است.
 struct SponsorAccountView {
     uint256 accrued;
     uint256 claimable;
@@ -61,6 +69,8 @@ struct SponsorAccountView {
     uint256 lastAccumulatorRay;
 }
 
+/// @notice EN: Test-side view of aggregate product accounting; mirrors `EarnTypes.ProductTotals`.
+/// @custom:fa نمای تستی حسابداری تجمیعی محصول که با `EarnTypes.ProductTotals` هم‌ساختار است.
 struct ProductTotalsView {
     uint256 userPrincipalLiability;
     uint256 userYieldLiability;
@@ -71,6 +81,8 @@ struct ProductTotalsView {
     uint256 treasuryReportedAssets;
 }
 
+/// @notice EN: Behavioral interface used by tests to exercise share-token implementations.
+/// @custom:fa اینترفیس رفتاری مورد استفاده تست‌ها برای بررسی پیاده‌سازی‌های share token.
 interface IEarnShareTokenSpec {
     function name() external view returns (string memory);
     function symbol() external view returns (string memory);
@@ -90,6 +102,8 @@ interface IEarnShareTokenSpec {
     function unlock(address account, uint256 amount) external;
 }
 
+/// @notice EN: Behavioral interface used by tests to exercise core implementations and upgrade mocks.
+/// @custom:fa اینترفیس رفتاری مورد استفاده تست‌ها برای بررسی هسته و mockهای upgrade.
 interface IEarnCoreSpec {
     function initialize(address admin, address asset) external;
     function shareToken() external view returns (address);

@@ -4,6 +4,8 @@ pragma solidity ^0.8.30;
 import {EarnTestBase} from "test/shared/EarnTestBase.sol";
 import {InsufficientLiquidity} from "test/shared/interfaces/EarnSpecInterfaces.sol";
 
+/// @notice EN: Unit tests for treasury transfers, buffer replenishment, and withdrawal liquidity constraints.
+/// @custom:fa تست‌های واحد برای انتقال خزانه، replenishment بافر و محدودیت‌های نقدینگی برداشت.
 contract LiquidityPolicyTest is EarnTestBase {
     function test_transferToTreasuryDecrementsTreasuryReportedAssetsAfterTransfer() public {
         vm.prank(admin);

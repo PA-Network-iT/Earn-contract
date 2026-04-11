@@ -1,9 +1,13 @@
 [profile.default]
+# EN: Main source, test, script, and artifact directories.
+# FA: مسیرهای اصلی سورس، تست، اسکریپت و خروجی build.
 src = "src"
 test = "test"
 script = "script"
 out = "out"
 libs = ["lib"]
+# EN: Match the audited compiler version and deterministic build settings.
+# FA: نسخه compiler و تنظیمات build قطعی مطابق محدوده audit.
 solc_version = "0.8.30"
 optimizer = true
 optimizer_runs = 1
@@ -11,13 +15,19 @@ via_ir = true
 bytecode_hash = "none"
 cbor_metadata = false
 ffi = false
+# EN: Tests can read project files but cannot write through cheatcode file permissions.
+# FA: تست‌ها می‌توانند فایل‌های پروژه را بخوانند اما از مسیر permissionهای cheatcode اجازه نوشتن ندارند.
 fs_permissions = [{ access = "read", path = "./" }]
 
 [fuzz]
+# EN: Fuzzing budget used by unit and property tests.
+# FA: بودجه fuzzing مورد استفاده تست‌های واحد و property.
 runs = 256
 max_test_rejects = 65536
 
 [invariant]
+# EN: Invariant campaign depth and reporting behavior.
+# FA: عمق اجرای invariant و رفتار گزارش‌دهی.
 runs = 128
 depth = 32
 fail_on_revert = false

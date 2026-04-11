@@ -12,6 +12,8 @@ import {
     LotView
 } from "test/shared/interfaces/EarnSpecInterfaces.sol";
 
+/// @notice EN: Unit tests for deposit validation, lot creation, share minting, and pagination.
+/// @custom:fa تست‌های واحد برای اعتبارسنجی سپرده، ساخت lot، mint شدن share و pagination.
 contract DepositFlowTest is EarnTestBase {
     function test_minDepositStartsAtDefaultValue() public view {
         assertEq(core.minDeposit(), 1_000_000);

@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-/// @notice Shared protocol data types.
+/// @notice EN: Shared protocol data types.
+/// @custom:fa نوع‌های داده مشترک پروتکل.
 library EarnTypes {
-    /// @notice APR checkpoint used for index materialization.
+    /// @notice EN: APR checkpoint used for index materialization.
+    /// @custom:fa checkpoint نرخ APR برای materialize کردن index.
     struct AprVersion {
         uint64 startTimestamp;
         uint32 aprBps;
         uint160 anchorIndexRay;
     }
 
-    /// @notice Deposit position tracked by the core.
+    /// @notice EN: Deposit position tracked by the core.
+    /// @custom:fa موقعیت سپرده‌ای که توسط هسته به شکل lot پیگیری می‌شود.
     struct Lot {
         uint256 id;
         address owner;
@@ -27,7 +30,8 @@ library EarnTypes {
         address sponsor;
     }
 
-    /// @notice Pending withdrawal request for a user.
+    /// @notice EN: Pending withdrawal request for a user.
+    /// @custom:fa درخواست برداشت در انتظار اجرا برای یک کاربر.
     struct WithdrawalRequest {
         uint256 id;
         address owner;
@@ -40,7 +44,8 @@ library EarnTypes {
         bool cancelled;
     }
 
-    /// @notice Accounting state for a sponsor.
+    /// @notice EN: Accounting state for a sponsor.
+    /// @custom:fa وضعیت حسابداری یک sponsor.
     struct SponsorAccount {
         uint256 accrued;
         uint256 claimable;
@@ -48,7 +53,8 @@ library EarnTypes {
         uint256 lastAccumulatorRay;
     }
 
-    /// @notice Sponsor rate checkpoint used for reward accrual.
+    /// @notice EN: Sponsor rate checkpoint used for reward accrual.
+    /// @custom:fa checkpoint نرخ sponsor برای محاسبه accrual پاداش.
     struct SponsorRateVersion {
         uint64 startTimestamp;
         uint32 sponsorRateBps;
@@ -56,7 +62,8 @@ library EarnTypes {
         uint160 anchorAccumulatorRay;
     }
 
-    /// @notice Aggregate product liabilities and liquid balances.
+    /// @notice EN: Aggregate product liabilities and liquid balances.
+    /// @custom:fa مجموع بدهی‌های محصول و موجودی‌های نقد.
     struct ProductTotals {
         uint256 userPrincipalLiability;
         uint256 userYieldLiability;

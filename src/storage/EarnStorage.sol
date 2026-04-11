@@ -3,8 +3,10 @@ pragma solidity ^0.8.30;
 
 import {EarnTypes} from "src/types/EarnTypes.sol";
 
-/// @dev Storage layout for `EarnCore`.
-/// Field order stays append only for proxy safety.
+/// @dev EN: Storage layout for `EarnCore`.
+/// @custom:fa چیدمان storage قرارداد `EarnCore`.
+/// @dev EN: Field order stays append-only for proxy safety.
+/// @custom:fa-dev ترتیب فیلدها برای امنیت proxy فقط باید append-only تغییر کند.
 abstract contract EarnStorage {
     /// @dev Underlying asset used for deposits and withdrawals.
     address internal _asset;
@@ -41,7 +43,8 @@ abstract contract EarnStorage {
     mapping(address account => bool isBlacklisted) internal _blacklisted;
     /// @dev Blacklist timestamp by account.
     mapping(address account => uint64 blacklistedAt) internal _blacklistTimestamps;
-    /// @dev Sponsor accrual cap per lot.
+    /// @dev EN: First blacklist accrual cap per lot, used for yield and sponsor reward cutoffs.
+    /// @custom:fa اولین cap ناشی از blacklist برای هر lot که برای توقف سود کاربر و پاداش sponsor استفاده می‌شود.
     mapping(uint256 lotId => uint64 sponsorAccrualCapAt) internal _lotSponsorAccrualCaps;
     /// @dev User lot registry.
     mapping(address user => uint256[] lotIds) internal _userLotIds;

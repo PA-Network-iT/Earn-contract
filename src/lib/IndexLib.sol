@@ -3,13 +3,15 @@ pragma solidity ^0.8.30;
 
 import {EarnTypes} from "src/types/EarnTypes.sol";
 
-/// @notice Index math helpers for the EARN protocol.
+/// @notice EN: Index math helpers for the EARN protocol.
+/// @custom:fa ابزارهای محاسباتی index برای پروتکل EARN.
 library IndexLib {
     uint256 internal constant ONE_RAY = 1e27;
     uint256 internal constant BPS_DENOMINATOR = 10_000;
     uint256 internal constant YEAR_IN_SECONDS = 365 days;
 
     /// @notice Returns the protocol index at a given timestamp.
+    /// @custom:fa index پروتکل را در timestamp مشخص محاسبه و برمی‌گرداند.
     /// @param versions APR checkpoints ordered by start time.
     /// @param timestamp Timestamp used for materialization.
     /// @return Current index in ray precision.
@@ -23,6 +25,7 @@ library IndexLib {
     }
 
     /// @notice Materializes an index from an anchor point.
+    /// @custom:fa index را از نقطه anchor و نرخ APR خطی materialize می‌کند.
     /// @param anchorIndexRay Index value at the anchor timestamp.
     /// @param aprBps Annual rate in basis points.
     /// @param elapsed Elapsed time in seconds.
@@ -32,6 +35,7 @@ library IndexLib {
     }
 
     /// @notice Appends a new APR checkpoint.
+    /// @custom:fa یک checkpoint جدید APR به لیست نسخه‌ها اضافه می‌کند.
     /// @param versions APR checkpoints ordered by start time.
     /// @param aprBps Annual rate in basis points.
     /// @param timestamp Start time for the new checkpoint.
@@ -45,6 +49,7 @@ library IndexLib {
     }
 
     /// @notice Converts assets into shares at a given index.
+    /// @custom:fa مقدار دارایی را با index داده‌شده به share تبدیل می‌کند.
     /// @param assets Asset amount in token decimals.
     /// @param indexRay Index in ray precision.
     /// @return Share amount.
@@ -53,6 +58,7 @@ library IndexLib {
     }
 
     /// @notice Converts shares into assets at a given index.
+    /// @custom:fa مقدار share را با index داده‌شده به دارایی تبدیل می‌کند.
     /// @param shares Share amount.
     /// @param indexRay Index in ray precision.
     /// @return Asset amount in token decimals.

@@ -3,6 +3,8 @@ pragma solidity ^0.8.30;
 
 import {EarnTestBase} from "test/shared/EarnTestBase.sol";
 
+/// @notice EN: Integration tests covering a representative deposit, APR update, withdrawal request, and execution flow.
+/// @custom:fa تست‌های یکپارچه برای مسیر نمونه سپرده‌گذاری، تغییر APR، درخواست برداشت و اجرای برداشت.
 contract EarnLifecycleTest is EarnTestBase {
     function test_fullLifecycleDepositAprChangeRequestAndExecuteWithdrawal() public {
         vm.startPrank(admin);

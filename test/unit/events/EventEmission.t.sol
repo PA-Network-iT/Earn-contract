@@ -3,6 +3,8 @@ pragma solidity ^0.8.30;
 
 import {EarnTestBase} from "test/shared/EarnTestBase.sol";
 
+/// @notice EN: Unit tests that pin expected events for user, admin, treasury, and sponsor flows.
+/// @custom:fa تست‌های واحد برای تثبیت eventهای مورد انتظار در جریان‌های کاربر، ادمین، خزانه و sponsor.
 contract EventEmissionTest is EarnTestBase {
     event Deposited(
         address indexed caller,

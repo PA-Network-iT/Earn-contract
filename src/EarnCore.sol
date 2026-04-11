@@ -39,15 +39,19 @@ error PendingAprUpdate(uint256 effectiveAt);
 error InvalidShareToken(address shareToken);
 error ShareTokenAlreadySet(address shareToken);
 error InvalidMinimumDeposit(uint256 minimumAssets);
+error InvalidAdmin(address admin);
+error InvalidAsset(address asset);
 
 /// @notice Core contract for the EARN product.
+/// @custom:fa قرارداد اصلی محصول EARN برای سپرده‌گذاری، برداشت، حسابداری سود، اسپانسر و عملیات خزانه.
 /// @dev Holds assets, manages lots, and coordinates share and sponsor accounting.
+/// @custom:fa-dev دارایی‌ها را نگه می‌دارد، lotها را مدیریت می‌کند و حسابداری share و sponsor را هماهنگ می‌کند.
 contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, UUPSUpgradeable, EarnRoles, EarnStorage {
     using SafeERC20 for IERC20;
     using IndexLib for EarnTypes.AprVersion[];
     using SponsorLib for EarnTypes.SponsorRateVersion[];
 
-    uint256 internal constant MAX_APR_BPS = 10_000;
+    uint256 internal constant MAX_APR_BPS = IndexLib.BPS_DENOMINATOR;
     uint256 internal constant DEFAULT_MIN_DEPOSIT = 1e6;
     uint256 internal constant HARD_MAX_SPONSOR_RATE_BPS = 2_000;
     uint256 internal constant DEFAULT_MAX_SPONSOR_RATE_BPS = 2_000;
@@ -88,9 +92,17 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     // ===== Initialization =====
 
     /// @notice Initializes the core proxy.
+    /// @custom:fa پراکسی هسته را مقداردهی اولیه می‌کند.
     /// @param admin Address that receives the initial roles.
     /// @param asset_ Deposit and withdrawal asset.
     function initialize(address admin, address asset_) external initializer {
+        if (admin == address(0)) {
+            revert InvalidAdmin(admin);
+        }
+        if (asset_ == address(0)) {
+            revert InvalidAsset(asset_);
+        }
+
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(PARAMETER_MANAGER_ROLE, admin);
@@ -173,7 +185,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
             revert ZeroSharesMinted(assets, indexRay);
         }
 
-        uint256 treasuryShare = (assets * _treasuryRatioBps) / 10_000;
+        uint256 treasuryShare = (assets * _treasuryRatioBps) / IndexLib.BPS_DENOMINATOR;
         uint256 bufferShare = assets - treasuryShare;
 
         IERC20(_asset).safeTransferFrom(msg.sender, address(this), assets);
@@ -341,8 +353,8 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
             _checkpointSponsorState(withdrawalLot.sponsor, currentIndexRay);
             withdrawalLot.lastSponsorAccumulatorRay = _sponsorAccounts[withdrawalLot.sponsor].lastAccumulatorRay;
 
-            if (_lotSponsorAccrualCaps[withdrawalLot.id] == 0) {
-                uint256 restoredShares = withdrawalLot.isFrozen ? withdrawalLot.shareAmount : request.shareAmount;
+            if (_lotAccrualCapAt(withdrawalLot) == 0) {
+                uint256 restoredShares = request.shareAmount;
                 _sponsorActiveShares[withdrawalLot.sponsor] += restoredShares;
                 _userSponsorActiveShares[withdrawalLot.owner][withdrawalLot.sponsor] += restoredShares;
                 _globalSponsoredWeightedSharesBps += restoredShares * _currentSponsorRateBps(withdrawalLot.sponsor);
@@ -441,7 +453,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     /// @notice Updates the treasury ratio.
     /// @param newRatioBps Treasury ratio in basis points.
     function setTreasuryRatio(uint256 newRatioBps) external onlyRole(PARAMETER_MANAGER_ROLE) {
-        if (newRatioBps > 10_000) {
+        if (newRatioBps > IndexLib.BPS_DENOMINATOR) {
             revert InvalidTreasuryRatio(newRatioBps);
         }
         _treasuryRatioBps = newRatioBps;
@@ -495,6 +507,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     }
 
     /// @notice Updates blacklist status for an account.
+    /// @custom:fa وضعیت blacklist یک حساب را به‌روزرسانی می‌کند و برای lotهای موجود cap تاریخی ثبت می‌کند.
     /// @dev Blacklisting records a cutoff timestamp for existing lots.
     /// @dev Unblacklisting reopens access checks but does not remove that historical cutoff.
     /// @param account Account to update.
@@ -502,7 +515,9 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     function setBlacklist(address account, bool isBlacklisted_) external onlyRole(COMPLIANCE_ROLE) {
         _blacklisted[account] = isBlacklisted_;
         if (isBlacklisted_) {
-            _blacklistTimestamps[account] = uint64(block.timestamp);
+            uint64 cappedAt = uint64(block.timestamp);
+            _blacklistTimestamps[account] = cappedAt;
+            _capBlacklistedUserLots(account, cappedAt);
             _deactivateBlacklistedUserSponsorShares(account, currentIndex());
         }
         emit BlacklistUpdated(account, isBlacklisted_);
@@ -821,7 +836,23 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         }
     }
 
-    /// @dev Caps a lot at the recorded blacklist timestamp when the lot predates that event.
+    /// @dev Records the first blacklist cutoff for every open lot owned by a user.
+    /// @custom:fa اولین زمان blacklist را برای هر lot بازِ متعلق به کاربر ثبت می‌کند و capهای قبلی را حفظ می‌کند.
+    function _capBlacklistedUserLots(address user, uint64 cappedAt) internal {
+        uint256[] storage lotIds = _userLotIds[user];
+
+        for (uint256 i = 0; i < lotIds.length; i++) {
+            EarnTypes.Lot storage userLot = _lots[lotIds[i]];
+            if (userLot.isClosed || userLot.shareAmount == 0 || _lotSponsorAccrualCaps[userLot.id] != 0) {
+                continue;
+            }
+
+            _lotSponsorAccrualCaps[userLot.id] = cappedAt;
+        }
+    }
+
+    /// @dev Caps a lot at the first recorded blacklist timestamp.
+    /// @custom:fa timestamp موثر lot را به اولین زمان blacklist ثبت‌شده محدود می‌کند.
     function _effectiveTimestampForLot(EarnTypes.Lot storage userLot, uint256 timestamp)
         internal
         view
@@ -829,9 +860,23 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     {
         effectiveTimestamp = timestamp;
 
+        uint256 cappedAt = _lotAccrualCapAt(userLot);
+        if (cappedAt != 0 && cappedAt < effectiveTimestamp) {
+            effectiveTimestamp = cappedAt;
+        }
+    }
+
+    /// @dev Returns a lot-level cutoff, falling back to legacy account-level blacklist state if needed.
+    /// @custom:fa cutoff سطح lot را برمی‌گرداند و برای سازگاری با state قدیمی به blacklist سطح account fallback می‌کند.
+    function _lotAccrualCapAt(EarnTypes.Lot storage userLot) internal view returns (uint256 cappedAt) {
+        cappedAt = _lotSponsorAccrualCaps[userLot.id];
+        if (cappedAt != 0) {
+            return cappedAt;
+        }
+
         uint256 blacklistedAt = _blacklistTimestamps[userLot.owner];
-        if (blacklistedAt != 0 && userLot.openedAt < blacklistedAt && blacklistedAt < effectiveTimestamp) {
-            effectiveTimestamp = blacklistedAt;
+        if (blacklistedAt != 0 && userLot.openedAt <= blacklistedAt) {
+            return blacklistedAt;
         }
     }
 
@@ -865,7 +910,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         }
 
         return (_globalSponsoredWeightedSharesBps * (currentIndexRay - _globalSponsorLiabilityIndexRay))
-            / IndexLib.ONE_RAY / 10_000;
+            / IndexLib.ONE_RAY / IndexLib.BPS_DENOMINATOR;
     }
 
     function _checkpointGlobalSponsorLiability(uint256 currentIndexRay) internal {
@@ -888,7 +933,6 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
 
     function _isSponsorAccrualActive(EarnTypes.Lot storage userLot) internal view returns (bool) {
         return userLot.sponsor != address(0) && !userLot.isClosed && !userLot.isFrozen && userLot.shareAmount != 0
-            && _lotSponsorAccrualCaps[userLot.id] == 0
-            && (_blacklistTimestamps[userLot.owner] == 0 || userLot.openedAt > _blacklistTimestamps[userLot.owner]);
+            && _lotAccrualCapAt(userLot) == 0;
     }
 }
