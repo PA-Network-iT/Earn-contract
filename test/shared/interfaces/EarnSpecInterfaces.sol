@@ -31,18 +31,18 @@ error InvalidAsset(address asset);
 /// @notice Test-side view of a core lot; mirrors `EarnTypes.Lot`.
 struct LotView {
     uint256 id;
-    address owner;
     uint256 principalAssets;
     uint256 shareAmount;
     uint256 entryIndexRay;
     uint256 lastIndexRay;
     uint256 frozenIndexRay;
     uint256 lastSponsorAccumulatorRay;
+    address owner;
     uint64 openedAt;
-    uint64 frozenAt;
     bool isFrozen;
     bool isClosed;
     address sponsor;
+    uint64 frozenAt;
 }
 
 /// @notice Test-side view of a withdrawal request; mirrors `EarnTypes.WithdrawalRequest`.
@@ -99,7 +99,7 @@ interface IEarnShareTokenSpec {
 
 /// @notice Behavioral interface used by tests to exercise core implementations and upgrade mocks.
 interface IEarnCoreSpec {
-    function initialize(address admin, address asset) external;
+    function initialize(address admin, address asset, uint256 genesisTimestamp) external;
     function shareToken() external view returns (address);
     function setShareToken(address shareToken) external;
     function grantRole(bytes32 role, address account) external;

@@ -11,6 +11,9 @@ library EarnTypes {
     }
 
     /// @notice Deposit position tracked by the core.
+    /// @dev Field order is storage-packing aware (9 slots instead of 10).
+    ///      Slot 7: owner(20) + openedAt(8) + isFrozen(1) + isClosed(1) = 30 bytes.
+    ///      Slot 8: sponsor(20) + frozenAt(8) = 28 bytes.
     struct Lot {
         uint256 id;
         address owner;

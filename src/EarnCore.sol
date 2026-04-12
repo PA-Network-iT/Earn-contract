@@ -6,7 +6,7 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {EarnShareToken} from "src/EarnShareToken.sol";
 import {EarnRoles} from "src/EarnRoles.sol";
@@ -41,10 +41,13 @@ error ShareTokenAlreadySet(address shareToken);
 error InvalidMinimumDeposit(uint256 minimumAssets);
 error InvalidAdmin(address admin);
 error InvalidAsset(address asset);
+error InvalidGenesisTimestamp(uint256 genesisTimestamp);
+error NotBlacklisted(address account);
+error InvalidForceWithdrawalLot(uint256 lotId);
 
 /// @notice Core contract for the EARN product.
 /// @dev Holds assets, manages lots, and coordinates share and sponsor accounting.
-contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, UUPSUpgradeable, EarnRoles, EarnStorage {
+contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTransient, UUPSUpgradeable, EarnRoles, EarnStorage {
     using SafeERC20 for IERC20;
     using IndexLib for EarnTypes.AprVersion[];
     using SponsorLib for EarnTypes.SponsorRateVersion[];
@@ -64,11 +67,15 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         address sponsor
     );
     event WithdrawalRequested(
-        address indexed owner, uint256 indexed lotId, uint256 shareAmount, uint256 assetAmountSnapshot
+        address indexed owner,
+        uint256 indexed lotId,
+        uint256 requestId,
+        uint256 shareAmount,
+        uint256 assetAmountSnapshot
     );
-    event WithdrawalCancelled(address indexed owner, uint256 indexed lotId);
-    event WithdrawalExecuted(address indexed owner, uint256 indexed lotId, uint256 assetsPaid);
-    event SponsorRewardClaimed(address indexed sponsor, uint256 requestedAmount, uint256 paidAmount);
+    event WithdrawalCancelled(address indexed owner, uint256 indexed lotId, uint256 requestId);
+    event WithdrawalExecuted(address indexed owner, uint256 indexed lotId, uint256 requestId, uint256 assetsPaid);
+    event SponsorRewardClaimed(address indexed sponsor, uint256 amount);
     event AprUpdateScheduled(uint256 newAprBps, uint256 effectiveAt);
     event TreasuryRatioUpdated(uint256 newRatioBps);
     event SponsorAssigned(address indexed user, address indexed sponsor);
@@ -77,10 +84,17 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     event BlacklistUpdated(address indexed account, bool isBlacklisted);
     event WithdrawalPauseUpdated(bool requestPaused, bool executePaused);
     event TreasuryAssetsReported(uint256 assets);
-    event SponsorBudgetFunded(address indexed sponsor, uint256 requestedAmount, uint256 allocatedAmount);
-    event TreasuryTransferred(address indexed recipient, uint256 amount);
+    event SponsorBudgetFunded(
+        address indexed caller, address indexed sponsor, uint256 requestedAmount, uint256 allocatedAmount
+    );
+    event TreasuryTransferred(address indexed caller, address indexed recipient, uint256 amount);
     event BufferReplenished(address indexed caller, uint256 amount, uint256 reclassifiedTreasuryAmount);
     event MinimumDepositUpdated(uint256 newMinimumAssets);
+    event ShareTokenSet(address indexed shareToken);
+    event ForceWithdrawalExecuted(
+        address indexed user, uint256 indexed lotId, uint256 assetsPaid, uint256 payoutIndexRay
+    );
+    event UserRehabilitated(address indexed account, uint256 lotsRestored);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -92,12 +106,17 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     /// @notice Initializes the core proxy.
     /// @param admin Address that receives the initial roles.
     /// @param asset_ Deposit and withdrawal asset.
-    function initialize(address admin, address asset_) external initializer {
+    /// @param genesisTimestamp Index epoch start. Can be in the past (retroactive launch)
+    ///        or in the future (scheduled launch). Must not be zero.
+    function initialize(address admin, address asset_, uint256 genesisTimestamp) external initializer {
         if (admin == address(0)) {
             revert InvalidAdmin(admin);
         }
         if (asset_ == address(0)) {
             revert InvalidAsset(asset_);
+        }
+        if (genesisTimestamp == 0) {
+            revert InvalidGenesisTimestamp(genesisTimestamp);
         }
 
         __AccessControl_init();
@@ -112,7 +131,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         _asset = asset_;
         _aprVersions.push(
             EarnTypes.AprVersion({
-                startTimestamp: uint64(block.timestamp), aprBps: 0, anchorIndexRay: uint160(IndexLib.ONE_RAY)
+                startTimestamp: uint64(genesisTimestamp), aprBps: 0, anchorIndexRay: uint160(IndexLib.ONE_RAY)
             })
         );
         _globalSponsorLiabilityIndexRay = IndexLib.ONE_RAY;
@@ -147,6 +166,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
             revert InvalidShareToken(shareToken_);
         }
         _shareToken = shareToken_;
+        emit ShareTokenSet(shareToken_);
     }
 
     /// @notice Updates the minimum deposit.
@@ -225,6 +245,9 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         if (sponsor != address(0)) {
             _sponsorLotIds[sponsor].push(_nextLotId);
         }
+
+        _totalUncappedShares += shareAmount;
+        _totalUncappedPrincipal += assets;
 
         EarnShareToken(_shareToken).mint(receiver, shareAmount);
         lotId = _nextLotId;
@@ -313,7 +336,10 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         _activeWithdrawalRequestIds[msg.sender] = requestId;
         _totals.userPrincipalLiability -= withdrawnPrincipalAssets;
         _totals.frozenWithdrawalLiability += assetAmountSnapshot;
-        emit WithdrawalRequested(msg.sender, lotId, shareAmount, assetAmountSnapshot);
+
+        _adjustYieldTrackingOnWithdrawal(existingLot, shareAmount, withdrawnPrincipalAssets);
+
+        emit WithdrawalRequested(msg.sender, lotId, requestId, shareAmount, assetAmountSnapshot);
     }
 
     /// @notice Cancels the caller's active withdrawal request.
@@ -359,8 +385,10 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         }
 
         _totals.userPrincipalLiability += withdrawnPrincipalAssets;
+        _restoreYieldTrackingOnCancel(withdrawalLot, request.shareAmount, withdrawnPrincipalAssets);
+
         EarnShareToken(_shareToken).unlock(request.owner, request.shareAmount);
-        emit WithdrawalCancelled(request.owner, request.lotId);
+        emit WithdrawalCancelled(request.owner, request.lotId, requestId);
     }
 
     /// @notice Executes the caller's active withdrawal request.
@@ -400,7 +428,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         }
 
         EarnShareToken(_shareToken).burnLocked(request.owner, request.shareAmount);
-        emit WithdrawalExecuted(request.owner, request.lotId, assetsPaid);
+        emit WithdrawalExecuted(request.owner, request.lotId, requestId, assetsPaid);
         IERC20(_asset).safeTransfer(request.owner, assetsPaid);
     }
 
@@ -423,7 +451,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         _totals.sponsorRewardClaimable -= requestedAmount;
         _totals.sponsorRewardLiability -= requestedAmount;
 
-        emit SponsorRewardClaimed(msg.sender, requestedAmount, requestedAmount);
+        emit SponsorRewardClaimed(msg.sender, requestedAmount);
         IERC20(_asset).safeTransfer(msg.sender, requestedAmount);
         return requestedAmount;
     }
@@ -515,8 +543,82 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
             _blacklistTimestamps[account] = cappedAt;
             _capBlacklistedUserLots(account, cappedAt);
             _deactivateBlacklistedUserSponsorShares(account, currentIndex());
+        } else {
+            _rehabilitateUserLots(account);
         }
         emit BlacklistUpdated(account, isBlacklisted_);
+    }
+
+    /// @notice Force-withdraws a blacklisted user's lot at the capped index.
+    /// @dev Used when compliance decides the user should not continue using the protocol.
+    /// @param user Blacklisted account whose lot is being closed.
+    /// @param lotId Lot to force-close.
+    /// @return assetsPaid Amount transferred to the user.
+    function forceWithdrawBlacklisted(address user, uint256 lotId)
+        external
+        nonReentrant
+        onlyRole(COMPLIANCE_ROLE)
+        returns (uint256 assetsPaid)
+    {
+        if (!_blacklisted[user]) {
+            revert NotBlacklisted(user);
+        }
+
+        EarnTypes.Lot storage userLot = _lots[lotId];
+        if (userLot.owner != user || userLot.isClosed || userLot.shareAmount == 0) {
+            revert InvalidForceWithdrawalLot(lotId);
+        }
+
+        // Cancel pending withdrawal request for this lot if any
+        uint256 requestId = _activeWithdrawalRequestIds[user];
+        if (requestId != 0) {
+            EarnTypes.WithdrawalRequest storage req = _withdrawalRequests[requestId];
+            if (req.id != 0 && !req.executed && !req.cancelled && req.lotId == lotId) {
+                req.cancelled = true;
+                _totals.frozenWithdrawalLiability -= req.assetAmountSnapshot;
+
+                uint256 reqPrincipal = _withdrawalRequestPrincipalAssets[requestId];
+                _totals.userPrincipalLiability += reqPrincipal;
+                _restoreYieldTrackingOnCancel(userLot, req.shareAmount, reqPrincipal);
+
+                if (userLot.isFrozen) {
+                    userLot.isFrozen = false;
+                    userLot.frozenAt = 0;
+                    userLot.frozenIndexRay = 0;
+                } else {
+                    userLot.shareAmount += req.shareAmount;
+                    userLot.principalAssets += reqPrincipal;
+                }
+
+                EarnShareToken(_shareToken).unlock(user, req.shareAmount);
+            }
+        }
+
+        uint256 shareAmount = userLot.shareAmount;
+        uint256 principalAssets = userLot.principalAssets;
+
+        uint64 capAt = _lotSponsorAccrualCaps[userLot.id];
+        if (capAt == 0) {
+            capAt = _blacklistTimestamps[user];
+        }
+        uint256 payoutIndex = capAt != 0 ? _aprVersions.currentIndex(capAt) : currentIndex();
+        assetsPaid = IndexLib.previewAssetsForShares(shareAmount, payoutIndex);
+
+        if (assetsPaid > _totals.bufferAssets) {
+            revert InsufficientLiquidity(assetsPaid, _totals.bufferAssets);
+        }
+
+        _adjustYieldTrackingOnWithdrawal(userLot, shareAmount, principalAssets);
+
+        _totals.userPrincipalLiability -= principalAssets;
+        _totals.bufferAssets -= assetsPaid;
+
+        userLot.isClosed = true;
+
+        EarnShareToken(_shareToken).burn(user, shareAmount);
+
+        emit ForceWithdrawalExecuted(user, lotId, assetsPaid, payoutIndex);
+        IERC20(_asset).safeTransfer(user, assetsPaid);
     }
 
     /// @notice Updates withdrawal pause switches.
@@ -544,7 +646,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         EarnTypes.SponsorAccount storage account = _sponsorAccounts[sponsor];
         uint256 alreadyAllocated = account.claimed + account.claimable;
         if (account.accrued <= alreadyAllocated) {
-            emit SponsorBudgetFunded(sponsor, amount, 0);
+            emit SponsorBudgetFunded(msg.sender, sponsor, amount, 0);
             return;
         }
 
@@ -556,7 +658,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
             account.claimable += allocation;
             _totals.sponsorRewardClaimable += allocation;
         }
-        emit SponsorBudgetFunded(sponsor, amount, allocation);
+        emit SponsorBudgetFunded(msg.sender, sponsor, amount, allocation);
     }
 
     /// @notice Transfers available treasury assets out of the core.
@@ -574,7 +676,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
 
         _totals.treasuryReportedAssets -= amount;
         IERC20(_asset).safeTransfer(recipient, amount);
-        emit TreasuryTransferred(recipient, amount);
+        emit TreasuryTransferred(msg.sender, recipient, amount);
     }
 
     /// @notice Replenishes the liquid buffer.
@@ -702,7 +804,10 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     /// @return totalsView Product totals view.
     function totals() external view returns (EarnTypes.ProductTotals memory totalsView) {
         totalsView = _totals;
-        totalsView.userYieldLiability = _userYieldLiabilityAt(block.timestamp);
+        uint256 uncappedAssetValue = IndexLib.previewAssetsForShares(_totalUncappedShares, currentIndex());
+        uint256 uncappedYield =
+            uncappedAssetValue > _totalUncappedPrincipal ? uncappedAssetValue - _totalUncappedPrincipal : 0;
+        totalsView.userYieldLiability = uncappedYield + _cappedYieldLiability;
         totalsView.sponsorRewardLiability += _pendingGlobalSponsorLiability(currentIndex());
         return totalsView;
     }
@@ -788,24 +893,6 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         }
     }
 
-    /// @dev Computes live user yield liability at a timestamp.
-    function _userYieldLiabilityAt(uint256 timestamp) internal view returns (uint256 liability) {
-        for (uint256 lotId = 1; lotId <= _nextLotId; lotId++) {
-            EarnTypes.Lot storage activeLot = _lots[lotId];
-
-            if (activeLot.owner == address(0) || activeLot.isClosed || activeLot.isFrozen || activeLot.shareAmount == 0)
-            {
-                continue;
-            }
-
-            uint256 currentAssetValue =
-                IndexLib.previewAssetsForShares(activeLot.shareAmount, _indexForLot(activeLot, timestamp));
-            if (currentAssetValue > activeLot.principalAssets) {
-                liability += currentAssetValue - activeLot.principalAssets;
-            }
-        }
-    }
-
     /// @dev Returns the configured minimum deposit or the legacy default.
     function _effectiveMinDeposit() internal view returns (uint256) {
         uint256 configuredMinDeposit = _minDeposit;
@@ -832,9 +919,56 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         }
     }
 
-    /// @dev Records the first blacklist cutoff for every open lot owned by a user.
+    /// @dev Reverses the effects of blacklisting for every open lot owned by a user.
+    ///      Moves non-frozen lots from capped back to uncapped yield tracking and restores sponsor shares.
+    function _rehabilitateUserLots(address user) internal {
+        uint256[] storage lotIds = _userLotIds[user];
+        uint256 currentIndexRay = currentIndex();
+        uint256 restored = 0;
+
+        for (uint256 i = 0; i < lotIds.length; i++) {
+            EarnTypes.Lot storage userLot = _lots[lotIds[i]];
+            uint64 capAt = _lotSponsorAccrualCaps[userLot.id];
+            if (capAt == 0 || userLot.isClosed) {
+                continue;
+            }
+
+            _lotSponsorAccrualCaps[userLot.id] = 0;
+            restored++;
+
+            if (!userLot.isFrozen && userLot.shareAmount > 0) {
+                uint256 cappedIndex = _aprVersions.currentIndex(capAt);
+                uint256 assetValue = IndexLib.previewAssetsForShares(userLot.shareAmount, cappedIndex);
+                if (assetValue > userLot.principalAssets) {
+                    _cappedYieldLiability -= (assetValue - userLot.principalAssets);
+                }
+                _totalUncappedShares += userLot.shareAmount;
+                _totalUncappedPrincipal += userLot.principalAssets;
+
+                if (userLot.sponsor != address(0)) {
+                    _checkpointSponsorState(userLot.sponsor, currentIndexRay);
+                    userLot.lastSponsorAccumulatorRay = _sponsorAccounts[userLot.sponsor].lastAccumulatorRay;
+                    uint256 rateBps = _currentSponsorRateBps(userLot.sponsor);
+                    _sponsorActiveShares[userLot.sponsor] += userLot.shareAmount;
+                    _userSponsorActiveShares[user][userLot.sponsor] += userLot.shareAmount;
+                    if (rateBps != 0) {
+                        _globalSponsoredWeightedSharesBps += userLot.shareAmount * rateBps;
+                    }
+                }
+            }
+        }
+
+        _blacklistTimestamps[user] = 0;
+        if (restored > 0) {
+            emit UserRehabilitated(user, restored);
+        }
+    }
+
+    /// @dev Records the first blacklist cutoff for every open lot owned by a user
+    ///      and moves non-frozen lots from uncapped to capped yield tracking.
     function _capBlacklistedUserLots(address user, uint64 cappedAt) internal {
         uint256[] storage lotIds = _userLotIds[user];
+        uint256 cappedIndex = _aprVersions.currentIndex(cappedAt);
 
         for (uint256 i = 0; i < lotIds.length; i++) {
             EarnTypes.Lot storage userLot = _lots[lotIds[i]];
@@ -843,20 +977,52 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
             }
 
             _lotSponsorAccrualCaps[userLot.id] = cappedAt;
+
+            if (!userLot.isFrozen) {
+                _totalUncappedShares -= userLot.shareAmount;
+                _totalUncappedPrincipal -= userLot.principalAssets;
+
+                uint256 assetValue = IndexLib.previewAssetsForShares(userLot.shareAmount, cappedIndex);
+                if (assetValue > userLot.principalAssets) {
+                    _cappedYieldLiability += assetValue - userLot.principalAssets;
+                }
+            }
         }
     }
 
-    /// @dev Caps a lot at the first recorded blacklist timestamp.
-    function _effectiveTimestampForLot(EarnTypes.Lot storage userLot, uint256 timestamp)
-        internal
-        view
-        returns (uint256 effectiveTimestamp)
-    {
-        effectiveTimestamp = timestamp;
+    /// @dev Subtracts a withdrawn portion from the appropriate yield counter.
+    function _adjustYieldTrackingOnWithdrawal(
+        EarnTypes.Lot storage lotRef,
+        uint256 shareAmount,
+        uint256 principalAmount
+    ) internal {
+        uint256 capAt = _lotAccrualCapAt(lotRef);
+        if (capAt != 0) {
+            uint256 cappedIndex = _aprVersions.currentIndex(capAt);
+            uint256 assetValue = IndexLib.previewAssetsForShares(shareAmount, cappedIndex);
+            if (assetValue > principalAmount) {
+                _cappedYieldLiability -= (assetValue - principalAmount);
+            }
+        } else {
+            _totalUncappedShares -= shareAmount;
+            _totalUncappedPrincipal -= principalAmount;
+        }
+    }
 
-        uint256 cappedAt = _lotAccrualCapAt(userLot);
-        if (cappedAt != 0 && cappedAt < effectiveTimestamp) {
-            effectiveTimestamp = cappedAt;
+    /// @dev Restores a cancelled portion into the appropriate yield counter.
+    function _restoreYieldTrackingOnCancel(EarnTypes.Lot storage lotRef, uint256 shareAmount, uint256 principalAmount)
+        internal
+    {
+        uint256 capAt = _lotAccrualCapAt(lotRef);
+        if (capAt != 0) {
+            uint256 cappedIndex = _aprVersions.currentIndex(capAt);
+            uint256 assetValue = IndexLib.previewAssetsForShares(shareAmount, cappedIndex);
+            if (assetValue > principalAmount) {
+                _cappedYieldLiability += assetValue - principalAmount;
+            }
+        } else {
+            _totalUncappedShares += shareAmount;
+            _totalUncappedPrincipal += principalAmount;
         }
     }
 
@@ -871,10 +1037,6 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
         if (blacklistedAt != 0 && userLot.openedAt <= blacklistedAt) {
             return blacklistedAt;
         }
-    }
-
-    function _indexForLot(EarnTypes.Lot storage userLot, uint256 timestamp) internal view returns (uint256) {
-        return _aprVersions.currentIndex(_effectiveTimestampForLot(userLot, timestamp));
     }
 
     function _checkpointSponsorState(address sponsor, uint256 currentIndexRay) internal {

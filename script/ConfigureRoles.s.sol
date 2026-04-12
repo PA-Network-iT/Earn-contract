@@ -2,7 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {Script} from "forge-std/Script.sol";
-import {EarnCore} from "src/EarnCore.sol";
+import {EarnCore} from "../src/EarnCore.sol";
 
 /// @notice Broadcast script that grants operational roles to configured addresses.
 contract ConfigureRolesScript is Script {

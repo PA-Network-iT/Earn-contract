@@ -45,14 +45,14 @@ contract AccessControlTest is EarnTestBase {
         EarnCore coreImplementation = new EarnCore();
 
         vm.expectRevert(abi.encodeWithSelector(InvalidAdmin.selector, address(0)));
-        new ERC1967Proxy(address(coreImplementation), abi.encodeCall(EarnCore.initialize, (address(0), asset)));
+        new ERC1967Proxy(address(coreImplementation), abi.encodeCall(EarnCore.initialize, (address(0), asset, block.timestamp)));
     }
 
     function test_initializeRejectsZeroAsset() public {
         EarnCore coreImplementation = new EarnCore();
 
         vm.expectRevert(abi.encodeWithSelector(InvalidAsset.selector, address(0)));
-        new ERC1967Proxy(address(coreImplementation), abi.encodeCall(EarnCore.initialize, (admin, address(0))));
+        new ERC1967Proxy(address(coreImplementation), abi.encodeCall(EarnCore.initialize, (admin, address(0), block.timestamp)));
     }
 
     function test_scopedRolesGateAdminFunctions() public {
@@ -210,7 +210,7 @@ contract AccessControlTest is EarnTestBase {
     function test_shareTokenMustBeOwnedByCore() public {
         EarnCore coreImplementation = new EarnCore();
         ERC1967Proxy coreProxy =
-            new ERC1967Proxy(address(coreImplementation), abi.encodeCall(EarnCore.initialize, (admin, asset)));
+            new ERC1967Proxy(address(coreImplementation), abi.encodeCall(EarnCore.initialize, (admin, asset, block.timestamp)));
         IEarnCoreSpec freshCore = IEarnCoreSpec(address(coreProxy));
 
         EarnShareToken implementation = new EarnShareToken();

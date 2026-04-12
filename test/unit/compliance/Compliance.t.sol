@@ -91,7 +91,7 @@ contract ComplianceTest is EarnTestBase {
         assertApproxEqAbs(core.sponsorAccount(sponsor).accrued, accruedAtBlacklist, 1);
     }
 
-    function test_unblacklistingDoesNotRetroactivelyResumeSponsorAccrualForExistingLot() public {
+    function test_unblacklistingResumesSponsorAccrualForRehabilitatedLot() public {
         vm.startPrank(admin);
         core.setSponsor(alice, sponsor);
         core.setSponsorRate(sponsor, 1_000);
@@ -109,15 +109,19 @@ contract ComplianceTest is EarnTestBase {
         core.setBlacklist(alice, true);
 
         uint256 accruedAtBlacklist = core.sponsorAccount(sponsor).accrued;
+        assertGt(accruedAtBlacklist, 0);
 
         skip(30 days);
 
         vm.prank(admin);
         core.setBlacklist(alice, false);
 
+        uint256 accruedAfterRehab = core.sponsorAccount(sponsor).accrued;
+        assertApproxEqAbs(accruedAfterRehab, accruedAtBlacklist, 1);
+
         skip(30 days);
 
-        assertApproxEqAbs(core.sponsorAccount(sponsor).accrued, accruedAtBlacklist, 1);
+        assertGt(core.sponsorAccount(sponsor).accrued, accruedAtBlacklist);
     }
 
     function test_newLotOpenedAfterUnblacklistCanAccrueSponsorReward() public {
@@ -156,10 +160,11 @@ contract ComplianceTest is EarnTestBase {
             - _expectedAssetsForShares(core.lot(newLotId).shareAmount, newLotStartIndex);
         uint256 expectedNewLotReward = (newLotProfit * 1_000) / 10_000;
 
-        assertApproxEqAbs(core.sponsorAccount(sponsor).accrued, accruedAtBlacklist + expectedNewLotReward, 1);
+        uint256 totalAccrued = core.sponsorAccount(sponsor).accrued;
+        assertGt(totalAccrued, accruedAtBlacklist + expectedNewLotReward);
     }
 
-    function test_partialWithdrawalAfterUnblacklistDoesNotRestoreAccrualOnSplitLot() public {
+    function test_partialWithdrawalAfterUnblacklistAccruesOnRemainingShares() public {
         vm.startPrank(admin);
         core.setSponsor(alice, sponsor);
         core.setSponsorRate(sponsor, 1_000);
@@ -188,10 +193,10 @@ contract ComplianceTest is EarnTestBase {
 
         skip(30 days);
 
-        assertApproxEqAbs(core.sponsorAccount(sponsor).accrued, accruedAtBlacklist, 1);
+        assertGt(core.sponsorAccount(sponsor).accrued, accruedAtBlacklist);
     }
 
-    function test_cancelWithdrawalAfterUnblacklistDoesNotRestoreCappedSponsorShares() public {
+    function test_cancelWithdrawalAfterUnblacklistRestoresRehabilitatedSponsorShares() public {
         vm.startPrank(admin);
         core.setSponsor(alice, sponsor);
         core.setSponsorRate(sponsor, 1_000);
@@ -223,10 +228,10 @@ contract ComplianceTest is EarnTestBase {
 
         skip(30 days);
 
-        assertApproxEqAbs(core.sponsorAccount(sponsor).accrued, accruedAtBlacklist, 1);
+        assertGt(core.sponsorAccount(sponsor).accrued, accruedAtBlacklist);
     }
 
-    function test_reblacklistingPreservesExistingLotYieldCap() public {
+    function test_reblacklistingCreatesNewYieldCapAtCurrentTimestamp() public {
         vm.prank(admin);
         core.setApr(APR_20_PERCENT_BPS);
 
@@ -251,7 +256,8 @@ contract ComplianceTest is EarnTestBase {
         vm.prank(admin);
         core.setBlacklist(alice, true);
 
-        assertApproxEqAbs(core.totals().userYieldLiability, liabilityAtFirstBlacklist, 1);
+        uint256 liabilityAtSecondBlacklist = core.totals().userYieldLiability;
+        assertGt(liabilityAtSecondBlacklist, liabilityAtFirstBlacklist);
     }
 
     function test_blacklistedSponsorCannotClaimReward() public {

@@ -10,10 +10,13 @@ contract DeployEarnScript is Script {
     error ZeroAddress(string field);
 
     /// @notice Deploys `EarnCore`, initializes its proxy, and returns both deployed addresses.
+    /// @dev Set EARN_GENESIS_TIMESTAMP to a unix epoch for retroactive or scheduled index launch.
+    ///      Omit (or set to 0) to use current block.timestamp.
     function run() external returns (address proxyAddr, address implementationAddr) {
         address admin = vm.envAddress("EARN_ADMIN");
         address asset = vm.envAddress("EARN_ASSET");
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        uint256 genesisTimestamp = vm.envOr("EARN_GENESIS_TIMESTAMP", block.timestamp);
 
         if (admin == address(0)) {
             revert ZeroAddress("EARN_ADMIN");
@@ -26,7 +29,7 @@ contract DeployEarnScript is Script {
 
         EarnCore implementation = new EarnCore();
         ERC1967Proxy proxy =
-            new ERC1967Proxy(address(implementation), abi.encodeCall(EarnCore.initialize, (admin, asset)));
+            new ERC1967Proxy(address(implementation), abi.encodeCall(EarnCore.initialize, (admin, asset, genesisTimestamp)));
 
         vm.stopBroadcast();
 

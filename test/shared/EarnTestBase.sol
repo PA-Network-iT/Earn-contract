@@ -40,7 +40,7 @@ abstract contract EarnTestBase is Test {
 
         EarnCore implementation = new EarnCore();
         ERC1967Proxy proxy =
-            new ERC1967Proxy(address(implementation), abi.encodeCall(EarnCore.initialize, (admin, asset)));
+            new ERC1967Proxy(address(implementation), abi.encodeCall(EarnCore.initialize, (admin, asset, block.timestamp)));
         EarnShareToken tokenImplementation = new EarnShareToken();
         ERC1967Proxy tokenProxy = new ERC1967Proxy(
             address(tokenImplementation), abi.encodeCall(EarnShareToken.initialize, ("EARN LP", "eLP", address(proxy)))

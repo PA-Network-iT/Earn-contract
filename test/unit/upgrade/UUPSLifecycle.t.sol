@@ -22,7 +22,7 @@ contract UUPSLifecycleTest is EarnTestBase {
     function test_implementationContractDisablesInitializers() public {
         vm.prank(admin);
         vm.expectRevert(InvalidInitialization.selector);
-        core.initialize(admin, asset);
+        core.initialize(admin, asset, block.timestamp);
     }
 
     function test_onlyUpgraderCanAuthorizeUpgrade() public {

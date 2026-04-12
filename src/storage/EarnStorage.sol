@@ -72,6 +72,13 @@ abstract contract EarnStorage {
     /// @dev Minimum deposit in asset units.
     uint256 internal _minDeposit;
 
+    /// @dev Total shares of active lots not subject to a blacklist yield cap.
+    uint256 internal _totalUncappedShares;
+    /// @dev Total principal of active lots not subject to a blacklist yield cap.
+    uint256 internal _totalUncappedPrincipal;
+    /// @dev Pre-computed yield liability for lots whose yield is frozen at a blacklist cap.
+    uint256 internal _cappedYieldLiability;
+
     /// @dev Reserved storage slots for future upgrades.
-    uint256[49] private __gap;
+    uint256[46] private __gap;
 }
