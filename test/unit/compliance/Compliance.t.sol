@@ -4,8 +4,7 @@ pragma solidity ^0.8.30;
 import {EarnTestBase} from "test/shared/EarnTestBase.sol";
 import {Blacklisted} from "test/shared/interfaces/EarnSpecInterfaces.sol";
 
-/// @notice EN: Unit tests for blacklist restrictions and historical accrual caps.
-/// @custom:fa تست‌های واحد برای محدودیت‌های blacklist و capهای تاریخی accrual.
+/// @notice Unit tests for blacklist restrictions and historical accrual caps.
 contract ComplianceTest is EarnTestBase {
     function test_blacklistedUserCannotDeposit() public {
         vm.prank(admin);

@@ -43,9 +43,7 @@ error InvalidAdmin(address admin);
 error InvalidAsset(address asset);
 
 /// @notice Core contract for the EARN product.
-/// @custom:fa قرارداد اصلی محصول EARN برای سپرده‌گذاری، برداشت، حسابداری سود، اسپانسر و عملیات خزانه.
 /// @dev Holds assets, manages lots, and coordinates share and sponsor accounting.
-/// @custom:fa-dev دارایی‌ها را نگه می‌دارد، lotها را مدیریت می‌کند و حسابداری share و sponsor را هماهنگ می‌کند.
 contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, UUPSUpgradeable, EarnRoles, EarnStorage {
     using SafeERC20 for IERC20;
     using IndexLib for EarnTypes.AprVersion[];
@@ -92,7 +90,6 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     // ===== Initialization =====
 
     /// @notice Initializes the core proxy.
-    /// @custom:fa پراکسی هسته را مقداردهی اولیه می‌کند.
     /// @param admin Address that receives the initial roles.
     /// @param asset_ Deposit and withdrawal asset.
     function initialize(address admin, address asset_) external initializer {
@@ -507,7 +504,6 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     }
 
     /// @notice Updates blacklist status for an account.
-    /// @custom:fa وضعیت blacklist یک حساب را به‌روزرسانی می‌کند و برای lotهای موجود cap تاریخی ثبت می‌کند.
     /// @dev Blacklisting records a cutoff timestamp for existing lots.
     /// @dev Unblacklisting reopens access checks but does not remove that historical cutoff.
     /// @param account Account to update.
@@ -837,7 +833,6 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     }
 
     /// @dev Records the first blacklist cutoff for every open lot owned by a user.
-    /// @custom:fa اولین زمان blacklist را برای هر lot بازِ متعلق به کاربر ثبت می‌کند و capهای قبلی را حفظ می‌کند.
     function _capBlacklistedUserLots(address user, uint64 cappedAt) internal {
         uint256[] storage lotIds = _userLotIds[user];
 
@@ -852,7 +847,6 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     }
 
     /// @dev Caps a lot at the first recorded blacklist timestamp.
-    /// @custom:fa timestamp موثر lot را به اولین زمان blacklist ثبت‌شده محدود می‌کند.
     function _effectiveTimestampForLot(EarnTypes.Lot storage userLot, uint256 timestamp)
         internal
         view
@@ -867,7 +861,6 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuard, U
     }
 
     /// @dev Returns a lot-level cutoff, falling back to legacy account-level blacklist state if needed.
-    /// @custom:fa cutoff سطح lot را برمی‌گرداند و برای سازگاری با state قدیمی به blacklist سطح account fallback می‌کند.
     function _lotAccrualCapAt(EarnTypes.Lot storage userLot) internal view returns (uint256 cappedAt) {
         cappedAt = _lotSponsorAccrualCaps[userLot.id];
         if (cappedAt != 0) {

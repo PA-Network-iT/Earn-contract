@@ -14,8 +14,7 @@ import {EarnCore} from "src/EarnCore.sol";
 import {EarnShareToken} from "src/EarnShareToken.sol";
 import {MockUSDC} from "test/shared/mocks/MockUSDC.sol";
 
-/// @notice EN: Shared Foundry fixture that deploys the core proxy, share-token proxy, and mock asset.
-/// @custom:fa fixture مشترک Foundry که پراکسی هسته، پراکسی share token و دارایی mock را دیپلوی می‌کند.
+/// @notice Shared Foundry fixture that deploys the core proxy, share-token proxy, and mock asset.
 abstract contract EarnTestBase is Test {
     uint256 internal constant ONE_RAY = 1e27;
     uint256 internal constant YEAR_IN_SECONDS = 365 days;

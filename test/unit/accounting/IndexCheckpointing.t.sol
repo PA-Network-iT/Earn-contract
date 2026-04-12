@@ -4,8 +4,7 @@ pragma solidity ^0.8.30;
 import {EarnTestBase} from "test/shared/EarnTestBase.sol";
 import {InvalidApr, PendingAprUpdate} from "test/shared/interfaces/EarnSpecInterfaces.sol";
 
-/// @notice EN: Unit tests for APR checkpoints and linear index materialization across time.
-/// @custom:fa تست‌های واحد برای checkpointهای APR و materialize شدن خطی index در طول زمان.
+/// @notice Unit tests for APR checkpoints and linear index materialization across time.
 contract IndexCheckpointingTest is EarnTestBase {
     function test_currentIndexStartsAtOneRay() public view {
         assertEq(core.currentIndex(), ONE_RAY);

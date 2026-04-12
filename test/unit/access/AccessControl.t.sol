@@ -17,8 +17,7 @@ import {EarnCore} from "src/EarnCore.sol";
 import {EarnShareToken} from "src/EarnShareToken.sol";
 import {EarnCoreV2Mock} from "test/unit/upgrade/mocks/EarnCoreV2Mock.sol";
 
-/// @notice EN: Unit tests for role gating, initialization guards, share-token binding, and upgrade authorization.
-/// @custom:fa تست‌های واحد برای کنترل نقش‌ها، guardهای initialize، اتصال share token و مجوز upgrade.
+/// @notice Unit tests for role gating, initialization guards, share-token binding, and upgrade authorization.
 contract AccessControlTest is EarnTestBase {
     address internal parameterManager = makeAddr("parameterManager");
     address internal treasuryManager = makeAddr("treasuryManager");

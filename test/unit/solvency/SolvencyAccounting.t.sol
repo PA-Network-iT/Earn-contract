@@ -3,8 +3,7 @@ pragma solidity ^0.8.30;
 
 import {EarnTestBase} from "test/shared/EarnTestBase.sol";
 
-/// @notice EN: Unit tests for principal, live yield, and frozen withdrawal liability accounting.
-/// @custom:fa تست‌های واحد برای حسابداری principal، سود زنده و بدهی برداشت فریز‌شده.
+/// @notice Unit tests for principal, live yield, and frozen withdrawal liability accounting.
 contract SolvencyAccountingTest is EarnTestBase {
     function test_totalsTrackLiveUserYieldLiabilityAfterIndexGrowth() public {
         vm.prank(admin);

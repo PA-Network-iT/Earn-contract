@@ -11,8 +11,7 @@ import {
 } from "test/shared/interfaces/EarnSpecInterfaces.sol";
 import {EarnShareToken} from "src/EarnShareToken.sol";
 
-/// @notice EN: Minimal stub core used where tests need the interface shape without full protocol behavior.
-/// @custom:fa stub حداقلی هسته برای جاهایی که تست‌ها فقط به شکل اینترفیس نیاز دارند، نه رفتار کامل پروتکل.
+/// @notice Minimal stub core used where tests need the interface shape without full protocol behavior.
 contract UnimplementedEarnCore is IEarnCoreSpec {
     uint256 private constant ONE_RAY = 1e27;
     bytes32 private constant _DEFAULT_ADMIN_ROLE = 0x00;

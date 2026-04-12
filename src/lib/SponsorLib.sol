@@ -4,13 +4,11 @@ pragma solidity ^0.8.30;
 import {EarnTypes} from "src/types/EarnTypes.sol";
 import {IndexLib} from "src/lib/IndexLib.sol";
 
-/// @notice EN: Sponsor accrual helpers.
-/// @custom:fa ابزارهای محاسبه accrual و پاداش sponsor.
+/// @notice Sponsor accrual helpers.
 library SponsorLib {
     using IndexLib for EarnTypes.AprVersion[];
 
     /// @notice Returns the sponsor accumulator at a given timestamp.
-    /// @custom:fa accumulator اسپانسر را در timestamp مشخص محاسبه می‌کند.
     /// @param versions Sponsor rate checkpoints.
     /// @param aprVersions APR checkpoints.
     /// @param timestamp Timestamp used for materialization.
@@ -33,14 +31,11 @@ library SponsorLib {
         uint256 currentIndexRay = aprVersions.currentIndex(timestamp);
 
         return version.anchorAccumulatorRay
-            + (
-                ((currentIndexRay - uint256(version.anchorIndexRay)) * uint256(version.sponsorRateBps))
-                    / IndexLib.BPS_DENOMINATOR
-            );
+            + (((currentIndexRay - uint256(version.anchorIndexRay)) * uint256(version.sponsorRateBps))
+                / IndexLib.BPS_DENOMINATOR);
     }
 
     /// @notice Appends a new sponsor rate checkpoint.
-    /// @custom:fa یک checkpoint جدید برای نرخ sponsor اضافه می‌کند.
     /// @param versions Sponsor rate checkpoints.
     /// @param aprVersions APR checkpoints.
     /// @param sponsorRateBps Sponsor rate in basis points.
@@ -65,7 +60,6 @@ library SponsorLib {
     }
 
     /// @notice Converts an accumulator delta into assets.
-    /// @custom:fa deltaی accumulator را به مقدار دارایی قابل پرداخت تبدیل می‌کند.
     /// @param principalAssets Principal or notional amount in asset units.
     /// @param accumulatorDeltaRay Accumulator delta in ray precision.
     /// @return Reward amount in asset units.
@@ -78,7 +72,6 @@ library SponsorLib {
     }
 
     /// @notice Computes accrued sponsor reward for a lot.
-    /// @custom:fa پاداش accrued اسپانسر را برای یک lot محاسبه می‌کند.
     /// @param versions Sponsor rate checkpoints.
     /// @param aprVersions APR checkpoints.
     /// @param shareAmount Lot share amount.
@@ -109,7 +102,6 @@ library SponsorLib {
     }
 
     /// @notice Applies blacklist and freeze caps to a timestamp.
-    /// @custom:fa capهای blacklist و freeze را روی timestamp اعمال می‌کند.
     /// @param timestamp Requested timestamp.
     /// @param blacklistTimestamp Blacklist cutoff.
     /// @param frozenTimestamp Freeze cutoff.

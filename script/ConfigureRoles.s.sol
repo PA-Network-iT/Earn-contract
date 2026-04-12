@@ -4,11 +4,9 @@ pragma solidity ^0.8.30;
 import {Script} from "forge-std/Script.sol";
 import {EarnCore} from "src/EarnCore.sol";
 
-/// @notice EN: Broadcast script that grants operational roles to configured addresses.
-/// @custom:fa اسکریپت برادکست برای اعطای نقش‌های عملیاتی به آدرس‌های تنظیم‌شده.
+/// @notice Broadcast script that grants operational roles to configured addresses.
 contract ConfigureRolesScript is Script {
-    /// @notice EN: Loads role recipients from environment variables and grants each missing role.
-    /// @custom:fa گیرنده‌های نقش را از متغیرهای محیطی می‌خواند و هر نقشِ جاافتاده را اعطا می‌کند.
+    /// @notice Loads role recipients from environment variables and grants each missing role.
     function run() external {
         EarnCore core = EarnCore(vm.envAddress("EARN_PROXY"));
         uint256 adminPrivateKey = vm.envUint("CONFIGURE_ROLES_PRIVATE_KEY");
@@ -32,8 +30,7 @@ contract ConfigureRolesScript is Script {
         vm.stopBroadcast();
     }
 
-    /// @notice EN: Grants a role only when a non-zero account does not already have it.
-    /// @custom:fa فقط وقتی آدرس غیرصفر است و هنوز نقش را ندارد، نقش را اعطا می‌کند.
+    /// @notice Grants a role only when a non-zero account does not already have it.
     function _grantIfMissing(EarnCore core, bytes32 role, address account) internal {
         if (account == address(0)) {
             return;

@@ -11,8 +11,7 @@ import {
     Blacklisted
 } from "test/shared/interfaces/EarnSpecInterfaces.sol";
 
-/// @notice EN: Unit tests for withdrawal request, cancel, execution, locks, pauses, and liquidity failures.
-/// @custom:fa تست‌های واحد برای درخواست برداشت، لغو، اجرا، lockها، pauseها و خطاهای نقدینگی.
+/// @notice Unit tests for withdrawal request, cancel, execution, locks, pauses, and liquidity failures.
 contract WithdrawalFlowTest is EarnTestBase {
     function test_requestWithdrawalLocksSharesAndFreezesLotIndex() public {
         vm.prank(admin);

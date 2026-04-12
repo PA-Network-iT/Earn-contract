@@ -9,8 +9,7 @@ import {
 } from "test/shared/interfaces/EarnSpecInterfaces.sol";
 import {EarnCoreV2Mock} from "test/unit/upgrade/mocks/EarnCoreV2Mock.sol";
 
-/// @notice EN: Minimal upgraded-core interface used to assert proxy behavior after a UUPS upgrade.
-/// @custom:fa اینترفیس حداقلی هسته upgradeشده برای بررسی رفتار proxy پس از upgrade UUPS.
+/// @notice Minimal upgraded-core interface used to assert proxy behavior after a UUPS upgrade.
 interface IEarnCoreV2 {
     function version() external view returns (string memory);
     function minDeposit() external view returns (uint256);
@@ -18,8 +17,7 @@ interface IEarnCoreV2 {
     function deposit(uint256 assets, address receiver) external returns (uint256 lotId);
 }
 
-/// @notice EN: Unit tests for UUPS initialization protection, upgrade authorization, and storage continuity.
-/// @custom:fa تست‌های واحد برای محافظت initialize در UUPS، مجوز upgrade و پیوستگی storage.
+/// @notice Unit tests for UUPS initialization protection, upgrade authorization, and storage continuity.
 contract UUPSLifecycleTest is EarnTestBase {
     function test_implementationContractDisablesInitializers() public {
         vm.prank(admin);
