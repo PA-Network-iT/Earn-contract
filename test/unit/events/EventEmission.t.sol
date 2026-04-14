@@ -41,7 +41,7 @@ contract EventEmissionTest is EarnTestBase {
     function test_setShareTokenEmitsEvent() public {
         EarnCore coreImpl = new EarnCore();
         ERC1967Proxy coreProxy =
-            new ERC1967Proxy(address(coreImpl), abi.encodeCall(EarnCore.initialize, (admin, asset, block.timestamp)));
+            new ERC1967Proxy(address(coreImpl), abi.encodeCall(EarnCore.initialize, (admin, asset, block.timestamp, 0)));
         EarnShareToken tokenImpl = new EarnShareToken();
         ERC1967Proxy tokenProxy = new ERC1967Proxy(
             address(tokenImpl), abi.encodeCall(EarnShareToken.initialize, ("EARN LP", "eLP", address(coreProxy)))
@@ -134,7 +134,7 @@ contract EventEmissionTest is EarnTestBase {
         vm.prank(alice);
         core.requestWithdrawal(lotId, 500e6);
 
-        uint256 expectedAccrued = _expectedSponsorReward(1_000e6, APR_20_PERCENT_BPS, 1_500, 180 days);
+        uint256 expectedAccrued = _expectedSponsorReward(1_000e6, 1_500, 180 days);
 
         vm.expectEmit(true, true, false, true);
         emit SponsorBudgetFunded(admin, sponsor, expectedAccrued, expectedAccrued);

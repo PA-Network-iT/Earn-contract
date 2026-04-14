@@ -5,19 +5,19 @@ import {EarnTypes} from "src/types/EarnTypes.sol";
 import {IndexLib} from "src/lib/IndexLib.sol";
 
 /// @notice Sponsor accrual helpers.
+/// @dev The sponsor rate is an independent APR applied to deposited volume (USDC principal),
+///      not a percentage of client yield. The accumulator grows linearly with time.
 library SponsorLib {
-    using IndexLib for EarnTypes.AprVersion[];
-
     /// @notice Returns the sponsor accumulator at a given timestamp.
+    /// @dev accumulator(T) = anchorAccum + ONE_RAY * rateBps * elapsed / (YEAR * BPS_DEN)
     /// @param versions Sponsor rate checkpoints.
-    /// @param aprVersions APR checkpoints.
     /// @param timestamp Timestamp used for materialization.
     /// @return Accumulator value in ray precision.
-    function currentAccumulator(
-        EarnTypes.SponsorRateVersion[] storage versions,
-        EarnTypes.AprVersion[] storage aprVersions,
-        uint256 timestamp
-    ) internal view returns (uint256) {
+    function currentAccumulator(EarnTypes.SponsorRateVersion[] storage versions, uint256 timestamp)
+        internal
+        view
+        returns (uint256)
+    {
         uint256 versionCount = versions.length;
         if (versionCount == 0) {
             return 0;
@@ -28,39 +28,34 @@ library SponsorLib {
 
         uint256 indexVersion = _versionIndexAtOrBefore(versions, timestamp);
         EarnTypes.SponsorRateVersion storage version = versions[indexVersion];
-        uint256 currentIndexRay = aprVersions.currentIndex(timestamp);
+        uint256 elapsed = timestamp - uint256(version.startTimestamp);
 
-        return version.anchorAccumulatorRay
-            + (((currentIndexRay - uint256(version.anchorIndexRay)) * uint256(version.sponsorRateBps))
-                / IndexLib.BPS_DENOMINATOR);
+        return uint256(version.anchorAccumulatorRay)
+            + ((IndexLib.ONE_RAY * uint256(version.sponsorRateBps) * elapsed)
+                / (IndexLib.YEAR_IN_SECONDS * IndexLib.BPS_DENOMINATOR));
     }
 
     /// @notice Appends a new sponsor rate checkpoint.
     /// @param versions Sponsor rate checkpoints.
-    /// @param aprVersions APR checkpoints.
     /// @param sponsorRateBps Sponsor rate in basis points.
     /// @param timestamp Start time for the new checkpoint.
-    function appendRateVersion(
-        EarnTypes.SponsorRateVersion[] storage versions,
-        EarnTypes.AprVersion[] storage aprVersions,
-        uint256 sponsorRateBps,
-        uint256 timestamp
-    ) internal {
-        uint256 anchorAccumulatorRay = currentAccumulator(versions, aprVersions, timestamp);
-        uint256 anchorIndexRay = aprVersions.currentIndex(timestamp);
+    function appendRateVersion(EarnTypes.SponsorRateVersion[] storage versions, uint256 sponsorRateBps, uint256 timestamp)
+        internal
+    {
+        uint256 anchorAccumulatorRay = currentAccumulator(versions, timestamp);
 
         versions.push(
             EarnTypes.SponsorRateVersion({
                 startTimestamp: uint64(timestamp),
                 sponsorRateBps: uint32(sponsorRateBps),
-                anchorIndexRay: uint160(anchorIndexRay),
+                anchorIndexRay: 0,
                 anchorAccumulatorRay: uint160(anchorAccumulatorRay)
             })
         );
     }
 
     /// @notice Converts an accumulator delta into assets.
-    /// @param principalAssets Principal or notional amount in asset units.
+    /// @param principalAssets Principal amount in asset units.
     /// @param accumulatorDeltaRay Accumulator delta in ray precision.
     /// @return Reward amount in asset units.
     function rewardFromAccumulatorDelta(uint256 principalAssets, uint256 accumulatorDeltaRay)
@@ -73,9 +68,7 @@ library SponsorLib {
 
     /// @notice Computes accrued sponsor reward for a lot.
     /// @param versions Sponsor rate checkpoints.
-    /// @param aprVersions APR checkpoints.
-    /// @param shareAmount Lot share amount.
-    /// @param entryIndexRay Lot entry index in ray precision.
+    /// @param principalAssets Lot principal in asset units (USDC volume).
     /// @param openedAt Lot open timestamp.
     /// @param timestamp Requested accrual timestamp.
     /// @param blacklistTimestamp Optional blacklist cutoff.
@@ -83,9 +76,7 @@ library SponsorLib {
     /// @return reward Accrued reward in asset units.
     function accruedRewardForLot(
         EarnTypes.SponsorRateVersion[] storage versions,
-        EarnTypes.AprVersion[] storage aprVersions,
-        uint256 shareAmount,
-        uint256 entryIndexRay,
+        uint256 principalAssets,
         uint256 openedAt,
         uint256 timestamp,
         uint256 blacklistTimestamp,
@@ -97,7 +88,7 @@ library SponsorLib {
         }
 
         for (uint256 i = 0; i < versions.length; i++) {
-            reward += _segmentReward(versions, aprVersions, shareAmount, entryIndexRay, openedAt, effectiveTimestamp, i);
+            reward += _segmentReward(versions, principalAssets, openedAt, effectiveTimestamp, i);
         }
     }
 
@@ -139,9 +130,7 @@ library SponsorLib {
 
     function _segmentReward(
         EarnTypes.SponsorRateVersion[] storage versions,
-        EarnTypes.AprVersion[] storage aprVersions,
-        uint256 shareAmount,
-        uint256 entryIndexRay,
+        uint256 principalAssets,
         uint256 openedAt,
         uint256 effectiveTimestamp,
         uint256 versionIndex
@@ -165,14 +154,8 @@ library SponsorLib {
             return 0;
         }
 
-        uint256 indexStartRay = segmentStart == openedAt ? entryIndexRay : aprVersions.currentIndex(segmentStart);
-        uint256 indexEndRay = aprVersions.currentIndex(segmentEnd);
-
-        if (indexEndRay <= indexStartRay) {
-            return 0;
-        }
-
-        uint256 profitAssets = (shareAmount * (indexEndRay - indexStartRay)) / IndexLib.ONE_RAY;
-        return (profitAssets * uint256(version.sponsorRateBps)) / IndexLib.BPS_DENOMINATOR;
+        uint256 elapsed = segmentEnd - segmentStart;
+        return (principalAssets * uint256(version.sponsorRateBps) * elapsed)
+            / (IndexLib.YEAR_IN_SECONDS * IndexLib.BPS_DENOMINATOR);
     }
 }

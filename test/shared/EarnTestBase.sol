@@ -40,7 +40,7 @@ abstract contract EarnTestBase is Test {
 
         EarnCore implementation = new EarnCore();
         ERC1967Proxy proxy =
-            new ERC1967Proxy(address(implementation), abi.encodeCall(EarnCore.initialize, (admin, asset, block.timestamp)));
+            new ERC1967Proxy(address(implementation), abi.encodeCall(EarnCore.initialize, (admin, asset, block.timestamp, 0)));
         EarnShareToken tokenImplementation = new EarnShareToken();
         ERC1967Proxy tokenProxy = new ERC1967Proxy(
             address(tokenImplementation), abi.encodeCall(EarnShareToken.initialize, ("EARN LP", "eLP", address(proxy)))
@@ -80,24 +80,23 @@ abstract contract EarnTestBase is Test {
         return (principalAssets * aprBps * elapsed) / (YEAR_IN_SECONDS * 10_000);
     }
 
-    function _expectedSponsorReward(uint256 principalAssets, uint256 aprBps, uint256 sponsorRateBps, uint256 elapsed)
+    function _expectedSponsorReward(uint256 principalAssets, uint256 sponsorRateBps, uint256 elapsed)
         internal
         pure
         returns (uint256)
     {
-        return (_expectedProfit(principalAssets, aprBps, elapsed) * sponsorRateBps) / 10_000;
+        return (principalAssets * sponsorRateBps * elapsed) / (YEAR_IN_SECONDS * 10_000);
     }
 
     function _expectedPiecewiseSponsorReward(
         uint256 principalAssets,
-        uint256 aprBps,
         uint256 firstRateBps,
         uint256 firstElapsed,
         uint256 secondRateBps,
         uint256 secondElapsed
     ) internal pure returns (uint256) {
-        return _expectedSponsorReward(principalAssets, aprBps, firstRateBps, firstElapsed)
-            + _expectedSponsorReward(principalAssets, aprBps, secondRateBps, secondElapsed);
+        return _expectedSponsorReward(principalAssets, firstRateBps, firstElapsed)
+            + _expectedSponsorReward(principalAssets, secondRateBps, secondElapsed);
     }
 
     function _assertPopulatedLot(

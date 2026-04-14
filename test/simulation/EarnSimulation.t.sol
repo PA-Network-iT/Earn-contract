@@ -283,10 +283,9 @@ contract EarnSimulationTest is EarnTestBase {
         SponsorAccountView memory sa = core.sponsorAccount(sponsorA);
         assertGt(sa.accrued, 0, "sponsor should accrue rewards");
 
-        uint256 expectedTotalYield = _expectedProfit(
-            depositEach * clientCount, APR_20_PERCENT_BPS, QUARTER
+        uint256 expectedSponsorReward = _expectedSponsorReward(
+            depositEach * clientCount, SPONSOR_RATE_BPS, QUARTER
         );
-        uint256 expectedSponsorReward = (expectedTotalYield * SPONSOR_RATE_BPS) / 10_000;
         assertApproxEqRel(sa.accrued, expectedSponsorReward, 0.01e18);
 
         _fundSponsorBudgetAs(sponsorA, sa.accrued);
@@ -350,10 +349,10 @@ contract EarnSimulationTest is EarnTestBase {
         uint256 totalAccrued = saAfterUpgrade.accrued;
 
         uint256 phase1Expected = _expectedSponsorReward(
-            totalPrincipal, APR_20_PERCENT_BPS, SPONSOR_RATE_BPS, phase1Duration
+            totalPrincipal, SPONSOR_RATE_BPS, phase1Duration
         );
         uint256 phase2Expected = _expectedSponsorReward(
-            totalPrincipal, APR_20_PERCENT_BPS, UPGRADED_SPONSOR_RATE_BPS, phase2Duration
+            totalPrincipal, UPGRADED_SPONSOR_RATE_BPS, phase2Duration
         );
 
         console2.log("--- Math verification ---");
@@ -793,8 +792,8 @@ contract EarnSimulationTest is EarnTestBase {
         SponsorAccountView memory saA = core.sponsorAccount(sponsorA);
         SponsorAccountView memory saB = core.sponsorAccount(sponsorB);
 
-        uint256 expA = _expectedSponsorReward(totalPerSponsor, APR_20_PERCENT_BPS, SPONSOR_RATE_BPS, QUARTER);
-        uint256 expB = _expectedSponsorReward(totalPerSponsor, APR_20_PERCENT_BPS, UPGRADED_SPONSOR_RATE_BPS, QUARTER);
+        uint256 expA = _expectedSponsorReward(totalPerSponsor, SPONSOR_RATE_BPS, QUARTER);
+        uint256 expB = _expectedSponsorReward(totalPerSponsor, UPGRADED_SPONSOR_RATE_BPS, QUARTER);
         console2.log("--- Math ---");
         _logUsdc("expectedA     ", expA);
         _logUsdc("expectedB     ", expB);
@@ -1628,9 +1627,9 @@ contract EarnSimulationTest is EarnTestBase {
         SponsorAccountView memory sa = core.sponsorAccount(sponsorA);
         assertGt(sa.accrued, 0);
 
-        uint256 reward10 = _expectedSponsorReward(100_000e6, APR_10_PERCENT_BPS, SPONSOR_RATE_BPS, 30 days);
-        uint256 reward20 = _expectedSponsorReward(100_000e6, APR_20_PERCENT_BPS, SPONSOR_RATE_BPS, 30 days);
-        uint256 reward10b = _expectedSponsorReward(100_000e6, APR_10_PERCENT_BPS, SPONSOR_RATE_BPS, 30 days);
+        uint256 reward10 = _expectedSponsorReward(100_000e6, SPONSOR_RATE_BPS, 30 days);
+        uint256 reward20 = _expectedSponsorReward(100_000e6, SPONSOR_RATE_BPS, 30 days);
+        uint256 reward10b = _expectedSponsorReward(100_000e6, SPONSOR_RATE_BPS, 30 days);
         uint256 expectedTotal = reward10 + reward20 + reward10b;
 
         console2.log("--- Math breakdown ---");

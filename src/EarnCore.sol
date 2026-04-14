@@ -108,7 +108,11 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     /// @param asset_ Deposit and withdrawal asset.
     /// @param genesisTimestamp Index epoch start. Can be in the past (retroactive launch)
     ///        or in the future (scheduled launch). Must not be zero.
-    function initialize(address admin, address asset_, uint256 genesisTimestamp) external initializer {
+    /// @param initialAprBps APR in basis points active from genesis. Pass 0 for a flat index until the first setApr call.
+    function initialize(address admin, address asset_, uint256 genesisTimestamp, uint256 initialAprBps)
+        external
+        initializer
+    {
         if (admin == address(0)) {
             revert InvalidAdmin(admin);
         }
@@ -117,6 +121,9 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         }
         if (genesisTimestamp == 0) {
             revert InvalidGenesisTimestamp(genesisTimestamp);
+        }
+        if (initialAprBps > MAX_APR_BPS) {
+            revert InvalidApr(initialAprBps);
         }
 
         __AccessControl_init();
@@ -131,12 +138,27 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         _asset = asset_;
         _aprVersions.push(
             EarnTypes.AprVersion({
-                startTimestamp: uint64(genesisTimestamp), aprBps: 0, anchorIndexRay: uint160(IndexLib.ONE_RAY)
+                startTimestamp: uint64(genesisTimestamp),
+                aprBps: uint32(initialAprBps),
+                anchorIndexRay: uint160(IndexLib.ONE_RAY)
             })
         );
-        _globalSponsorLiabilityIndexRay = IndexLib.ONE_RAY;
+        _globalSponsorLiabilityIndexRay = genesisTimestamp;
         _maxSponsorRateBps = DEFAULT_MAX_SPONSOR_RATE_BPS;
         _minDeposit = DEFAULT_MIN_DEPOSIT;
+    }
+
+    /// @notice V2 migration: sets a retroactive APR on the genesis checkpoint.
+    /// @dev Call via `upgradeToAndCall` on deployed proxies that were initialized with aprBps == 0.
+    /// @param initialAprBps APR in basis points to apply from genesis.
+    function initializeV2(uint256 initialAprBps) external reinitializer(2) {
+        if (initialAprBps > MAX_APR_BPS) {
+            revert InvalidApr(initialAprBps);
+        }
+        if (_aprVersions.length == 0) {
+            revert InvalidGenesisTimestamp(0);
+        }
+        _aprVersions[0].aprBps = uint32(initialAprBps);
     }
 
     // ===== Configuration =====
@@ -218,10 +240,10 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         if (sponsor != address(0)) {
             _trackSponsor(sponsor);
             _trackUserSponsor(receiver, sponsor);
-            _checkpointSponsorState(sponsor, indexRay);
-            _sponsorActiveShares[sponsor] += shareAmount;
-            _userSponsorActiveShares[receiver][sponsor] += shareAmount;
-            _globalSponsoredWeightedSharesBps += shareAmount * _currentSponsorRateBps(sponsor);
+            _checkpointSponsorState(sponsor);
+            _sponsorActiveShares[sponsor] += assets;
+            _userSponsorActiveShares[receiver][sponsor] += assets;
+            _globalSponsoredWeightedSharesBps += assets * _currentSponsorRateBps(sponsor);
             sponsorAccumulatorRay = _sponsorAccounts[sponsor].lastAccumulatorRay;
         }
 
@@ -287,15 +309,22 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         EarnShareToken(_shareToken).lock(msg.sender, shareAmount);
 
         uint256 frozenIndexRay = currentIndex();
-        uint256 withdrawnPrincipalAssets = existingLot.principalAssets;
         uint256 sponsorAccumulatorRay = existingLot.lastSponsorAccumulatorRay;
 
+        uint256 withdrawnPrincipalAssets;
+        if (shareAmount == existingLot.shareAmount) {
+            withdrawnPrincipalAssets = existingLot.principalAssets;
+        } else {
+            withdrawnPrincipalAssets =
+                WithdrawalLib.splitProRata(existingLot.principalAssets, shareAmount, existingLot.shareAmount);
+        }
+
         if (_isSponsorAccrualActive(existingLot)) {
-            _checkpointSponsorState(existingLot.sponsor, frozenIndexRay);
+            _checkpointSponsorState(existingLot.sponsor);
             sponsorAccumulatorRay = _sponsorAccounts[existingLot.sponsor].lastAccumulatorRay;
-            _sponsorActiveShares[existingLot.sponsor] -= shareAmount;
-            _userSponsorActiveShares[existingLot.owner][existingLot.sponsor] -= shareAmount;
-            _globalSponsoredWeightedSharesBps -= shareAmount * _currentSponsorRateBps(existingLot.sponsor);
+            _sponsorActiveShares[existingLot.sponsor] -= withdrawnPrincipalAssets;
+            _userSponsorActiveShares[existingLot.owner][existingLot.sponsor] -= withdrawnPrincipalAssets;
+            _globalSponsoredWeightedSharesBps -= withdrawnPrincipalAssets * _currentSponsorRateBps(existingLot.sponsor);
         }
 
         if (shareAmount == existingLot.shareAmount) {
@@ -305,11 +334,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
             existingLot.frozenAt = uint64(block.timestamp);
             existingLot.isFrozen = true;
         } else {
-            uint256 originalShareAmount = existingLot.shareAmount;
-            withdrawnPrincipalAssets =
-                WithdrawalLib.splitProRata(existingLot.principalAssets, shareAmount, originalShareAmount);
-
-            existingLot.shareAmount = originalShareAmount - shareAmount;
+            existingLot.shareAmount -= shareAmount;
             existingLot.principalAssets -= withdrawnPrincipalAssets;
             existingLot.lastIndexRay = frozenIndexRay;
             existingLot.lastSponsorAccumulatorRay = sponsorAccumulatorRay;
@@ -373,14 +398,13 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         }
 
         if (withdrawalLot.sponsor != address(0)) {
-            _checkpointSponsorState(withdrawalLot.sponsor, currentIndexRay);
+            _checkpointSponsorState(withdrawalLot.sponsor);
             withdrawalLot.lastSponsorAccumulatorRay = _sponsorAccounts[withdrawalLot.sponsor].lastAccumulatorRay;
 
             if (_lotAccrualCapAt(withdrawalLot) == 0) {
-                uint256 restoredShares = request.shareAmount;
-                _sponsorActiveShares[withdrawalLot.sponsor] += restoredShares;
-                _userSponsorActiveShares[withdrawalLot.owner][withdrawalLot.sponsor] += restoredShares;
-                _globalSponsoredWeightedSharesBps += restoredShares * _currentSponsorRateBps(withdrawalLot.sponsor);
+                _sponsorActiveShares[withdrawalLot.sponsor] += withdrawnPrincipalAssets;
+                _userSponsorActiveShares[withdrawalLot.owner][withdrawalLot.sponsor] += withdrawnPrincipalAssets;
+                _globalSponsoredWeightedSharesBps += withdrawnPrincipalAssets * _currentSponsorRateBps(withdrawalLot.sponsor);
             }
         }
 
@@ -438,7 +462,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     function claimSponsorReward(uint256 requestedAmount) external nonReentrant returns (uint256 paidAmount) {
         _requireNotBlacklisted(msg.sender);
 
-        _checkpointSponsorState(msg.sender, currentIndex());
+        _checkpointSponsorState(msg.sender);
 
         EarnTypes.SponsorAccount storage account = _sponsorAccounts[msg.sender];
         uint256 claimable = account.claimable;
@@ -470,7 +494,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
                 revert PendingAprUpdate(latestVersionStart);
             }
         }
-        _checkpointGlobalSponsorLiability(currentIndex());
+        _checkpointGlobalSponsorLiability();
         _aprVersions.appendAprVersion(newAprBps, effectiveAt);
         emit AprUpdateScheduled(newAprBps, effectiveAt);
     }
@@ -515,18 +539,17 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         }
 
         _trackSponsor(sponsor);
-        uint256 currentIndexRay = currentIndex();
-        _checkpointSponsorState(sponsor, currentIndexRay);
+        _checkpointSponsorState(sponsor);
 
-        uint256 activeShares = _sponsorActiveShares[sponsor];
+        uint256 activePrincipal = _sponsorActiveShares[sponsor];
         uint256 previousRateBps = _currentSponsorRateBps(sponsor);
-        if (activeShares != 0 && previousRateBps != 0) {
-            _globalSponsoredWeightedSharesBps -= activeShares * previousRateBps;
+        if (activePrincipal != 0 && previousRateBps != 0) {
+            _globalSponsoredWeightedSharesBps -= activePrincipal * previousRateBps;
         }
 
-        _sponsorRateVersions[sponsor].appendRateVersion(_aprVersions, newRateBps, block.timestamp);
-        if (activeShares != 0 && newRateBps != 0) {
-            _globalSponsoredWeightedSharesBps += activeShares * newRateBps;
+        _sponsorRateVersions[sponsor].appendRateVersion(newRateBps, block.timestamp);
+        if (activePrincipal != 0 && newRateBps != 0) {
+            _globalSponsoredWeightedSharesBps += activePrincipal * newRateBps;
         }
         emit SponsorRateUpdated(sponsor, newRateBps);
     }
@@ -542,7 +565,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
             uint64 cappedAt = uint64(block.timestamp);
             _blacklistTimestamps[account] = cappedAt;
             _capBlacklistedUserLots(account, cappedAt);
-            _deactivateBlacklistedUserSponsorShares(account, currentIndex());
+            _deactivateBlacklistedUserSponsorShares(account);
         } else {
             _rehabilitateUserLots(account);
         }
@@ -641,7 +664,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     /// @param sponsor Sponsor that receives the budget.
     /// @param amount Requested funding amount.
     function fundSponsorBudget(address sponsor, uint256 amount) external nonReentrant onlyRole(TREASURY_MANAGER_ROLE) {
-        _checkpointSponsorState(sponsor, currentIndex());
+        _checkpointSponsorState(sponsor);
 
         EarnTypes.SponsorAccount storage account = _sponsorAccounts[sponsor];
         uint256 alreadyAllocated = account.claimed + account.claimable;
@@ -808,7 +831,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         uint256 uncappedYield =
             uncappedAssetValue > _totalUncappedPrincipal ? uncappedAssetValue - _totalUncappedPrincipal : 0;
         totalsView.userYieldLiability = uncappedYield + _cappedYieldLiability;
-        totalsView.sponsorRewardLiability += _pendingGlobalSponsorLiability(currentIndex());
+        totalsView.sponsorRewardLiability += _pendingGlobalSponsorLiability();
         return totalsView;
     }
 
@@ -902,19 +925,19 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         return configuredMinDeposit;
     }
 
-    function _deactivateBlacklistedUserSponsorShares(address user, uint256 currentIndexRay) internal {
+    function _deactivateBlacklistedUserSponsorShares(address user) internal {
         address[] storage sponsors = _userTrackedSponsors[user];
 
         for (uint256 i = 0; i < sponsors.length; i++) {
             address sponsor = sponsors[i];
-            uint256 activeShares = _userSponsorActiveShares[user][sponsor];
-            if (activeShares == 0) {
+            uint256 activePrincipal = _userSponsorActiveShares[user][sponsor];
+            if (activePrincipal == 0) {
                 continue;
             }
 
-            _checkpointSponsorState(sponsor, currentIndexRay);
-            _sponsorActiveShares[sponsor] -= activeShares;
-            _globalSponsoredWeightedSharesBps -= activeShares * _currentSponsorRateBps(sponsor);
+            _checkpointSponsorState(sponsor);
+            _sponsorActiveShares[sponsor] -= activePrincipal;
+            _globalSponsoredWeightedSharesBps -= activePrincipal * _currentSponsorRateBps(sponsor);
             _userSponsorActiveShares[user][sponsor] = 0;
         }
     }
@@ -923,7 +946,6 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     ///      Moves non-frozen lots from capped back to uncapped yield tracking and restores sponsor shares.
     function _rehabilitateUserLots(address user) internal {
         uint256[] storage lotIds = _userLotIds[user];
-        uint256 currentIndexRay = currentIndex();
         uint256 restored = 0;
 
         for (uint256 i = 0; i < lotIds.length; i++) {
@@ -946,13 +968,13 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
                 _totalUncappedPrincipal += userLot.principalAssets;
 
                 if (userLot.sponsor != address(0)) {
-                    _checkpointSponsorState(userLot.sponsor, currentIndexRay);
+                    _checkpointSponsorState(userLot.sponsor);
                     userLot.lastSponsorAccumulatorRay = _sponsorAccounts[userLot.sponsor].lastAccumulatorRay;
                     uint256 rateBps = _currentSponsorRateBps(userLot.sponsor);
-                    _sponsorActiveShares[userLot.sponsor] += userLot.shareAmount;
-                    _userSponsorActiveShares[user][userLot.sponsor] += userLot.shareAmount;
+                    _sponsorActiveShares[userLot.sponsor] += userLot.principalAssets;
+                    _userSponsorActiveShares[user][userLot.sponsor] += userLot.principalAssets;
                     if (rateBps != 0) {
-                        _globalSponsoredWeightedSharesBps += userLot.shareAmount * rateBps;
+                        _globalSponsoredWeightedSharesBps += userLot.principalAssets * rateBps;
                     }
                 }
             }
@@ -1039,8 +1061,8 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         }
     }
 
-    function _checkpointSponsorState(address sponsor, uint256 currentIndexRay) internal {
-        _checkpointGlobalSponsorLiability(currentIndexRay);
+    function _checkpointSponsorState(address sponsor) internal {
+        _checkpointGlobalSponsorLiability();
 
         EarnTypes.SponsorAccount storage account = _sponsorAccounts[sponsor];
         uint256 currentAccumulatorRay = _currentSponsorAccumulator(sponsor);
@@ -1049,32 +1071,32 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     }
 
     function _pendingSponsorReward(address sponsor, uint256 currentAccumulatorRay) internal view returns (uint256) {
-        uint256 activeShares = _sponsorActiveShares[sponsor];
+        uint256 activePrincipal = _sponsorActiveShares[sponsor];
         uint256 lastAccumulatorRay = _sponsorAccounts[sponsor].lastAccumulatorRay;
 
-        if (activeShares == 0 || currentAccumulatorRay <= lastAccumulatorRay) {
+        if (activePrincipal == 0 || currentAccumulatorRay <= lastAccumulatorRay) {
             return 0;
         }
 
-        return SponsorLib.rewardFromAccumulatorDelta(activeShares, currentAccumulatorRay - lastAccumulatorRay);
+        return SponsorLib.rewardFromAccumulatorDelta(activePrincipal, currentAccumulatorRay - lastAccumulatorRay);
     }
 
-    function _pendingGlobalSponsorLiability(uint256 currentIndexRay) internal view returns (uint256) {
-        if (_globalSponsoredWeightedSharesBps == 0 || currentIndexRay <= _globalSponsorLiabilityIndexRay) {
+    function _pendingGlobalSponsorLiability() internal view returns (uint256) {
+        if (_globalSponsoredWeightedSharesBps == 0 || block.timestamp <= _globalSponsorLiabilityIndexRay) {
             return 0;
         }
 
-        return (_globalSponsoredWeightedSharesBps * (currentIndexRay - _globalSponsorLiabilityIndexRay))
-            / IndexLib.ONE_RAY / IndexLib.BPS_DENOMINATOR;
+        return (_globalSponsoredWeightedSharesBps * (block.timestamp - _globalSponsorLiabilityIndexRay))
+            / IndexLib.YEAR_IN_SECONDS / IndexLib.BPS_DENOMINATOR;
     }
 
-    function _checkpointGlobalSponsorLiability(uint256 currentIndexRay) internal {
-        _totals.sponsorRewardLiability += _pendingGlobalSponsorLiability(currentIndexRay);
-        _globalSponsorLiabilityIndexRay = currentIndexRay;
+    function _checkpointGlobalSponsorLiability() internal {
+        _totals.sponsorRewardLiability += _pendingGlobalSponsorLiability();
+        _globalSponsorLiabilityIndexRay = block.timestamp;
     }
 
     function _currentSponsorAccumulator(address sponsor) internal view returns (uint256) {
-        return _sponsorRateVersions[sponsor].currentAccumulator(_aprVersions, block.timestamp);
+        return _sponsorRateVersions[sponsor].currentAccumulator(block.timestamp);
     }
 
     function _currentSponsorRateBps(address sponsor) internal view returns (uint256) {

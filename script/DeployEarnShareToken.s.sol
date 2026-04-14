@@ -22,7 +22,7 @@ contract DeployEarnShareTokenScript is Script {
 
         EarnShareToken implementation = new EarnShareToken();
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(implementation), abi.encodeCall(EarnShareToken.initialize, ("EARN LP", "eLP", coreProxy))
+            address(implementation), abi.encodeCall(EarnShareToken.initialize, ("PAiT LP", "eLP", coreProxy))
         );
 
         vm.stopBroadcast();

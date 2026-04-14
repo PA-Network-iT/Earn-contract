@@ -39,7 +39,8 @@ contract UnimplementedEarnCore is IEarnCoreSpec {
         _shareToken = address(proxy);
     }
 
-    function initialize(address, address, uint256) external pure {}
+    function initialize(address, address, uint256, uint256) external pure {}
+    function initializeV2(uint256) external pure {}
 
     function shareToken() external view returns (address) {
         return _shareToken;

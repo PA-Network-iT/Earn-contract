@@ -90,12 +90,12 @@ contract SponsorAccrualTest is EarnTestBase {
         uint256 elapsed = 180 days;
         skip(elapsed);
 
-        uint256 expectedReward = _expectedSponsorReward(1_000e6, APR_20_PERCENT_BPS, 1_500, elapsed);
+        uint256 expectedReward = _expectedSponsorReward(1_000e6, 1_500, elapsed);
         assertEq(core.sponsorAccount(sponsor).accrued, expectedReward);
         assertEq(core.totals().sponsorRewardLiability, expectedReward);
     }
 
-    function test_sponsorRewardForLateDepositUsesShareCheckpointNotPrincipal() public {
+    function test_sponsorRewardForLateDepositUsesActualPrincipal() public {
         vm.startPrank(admin);
         core.setSponsor(alice, sponsor);
         core.setSponsorRate(sponsor, 1_500);
@@ -103,18 +103,14 @@ contract SponsorAccrualTest is EarnTestBase {
         vm.stopPrank();
 
         skip(24 hours + 180 days);
-        uint256 depositIndex = core.currentIndex();
 
         vm.prank(alice);
-        uint256 lotId = core.deposit(1_000e6, alice);
+        core.deposit(1_000e6, alice);
 
         uint256 elapsed = 180 days;
         skip(elapsed);
 
-        uint256 currentValue = _expectedAssetsForShares(core.lot(lotId).shareAmount, core.currentIndex());
-        uint256 depositedValue = _expectedAssetsForShares(core.lot(lotId).shareAmount, depositIndex);
-        uint256 expectedReward = ((currentValue - depositedValue) * 1_500) / 10_000;
-
+        uint256 expectedReward = _expectedSponsorReward(1_000e6, 1_500, elapsed);
         assertEq(core.sponsorAccount(sponsor).accrued, expectedReward);
     }
 
@@ -140,7 +136,7 @@ contract SponsorAccrualTest is EarnTestBase {
         skip(secondElapsed);
 
         uint256 expectedReward =
-            _expectedPiecewiseSponsorReward(1_000e6, APR_20_PERCENT_BPS, 1_000, firstElapsed, 2_000, secondElapsed);
+            _expectedPiecewiseSponsorReward(1_000e6, 1_000, firstElapsed, 2_000, secondElapsed);
         assertEq(core.sponsorAccount(sponsor).accrued, expectedReward);
     }
 
@@ -168,9 +164,9 @@ contract SponsorAccrualTest is EarnTestBase {
 
         skip(30 days);
 
-        uint256 expectedReward = _expectedSponsorReward(1_000e6, APR_20_PERCENT_BPS, 1_000, 30 days)
-            + _expectedSponsorReward(750e6, APR_20_PERCENT_BPS, 1_000, 30 days)
-            + _expectedSponsorReward(1_000e6, APR_20_PERCENT_BPS, 1_000, 30 days);
+        uint256 expectedReward = _expectedSponsorReward(1_000e6, 1_000, 30 days)
+            + _expectedSponsorReward(750e6, 1_000, 30 days)
+            + _expectedSponsorReward(1_000e6, 1_000, 30 days);
         assertApproxEqAbs(core.sponsorAccount(sponsor).accrued, expectedReward, 1);
     }
 
@@ -184,38 +180,22 @@ contract SponsorAccrualTest is EarnTestBase {
         skip(24 hours);
 
         vm.prank(alice);
-        uint256 lotId = core.deposit(1_000e6, alice);
+        core.deposit(1_000e6, alice);
 
         skip(90 days);
-        uint256 firstCheckpointIndex = core.currentIndex();
 
         vm.prank(admin);
         core.setSponsorRate(sponsor, 2_000);
 
         skip(90 days);
-        uint256 secondCheckpointIndex = core.currentIndex();
 
         vm.prank(admin);
         core.setApr(APR_10_PERCENT_BPS);
 
-        skip(24 hours);
-        uint256 delayedAprCheckpointIndex = core.currentIndex();
+        skip(24 hours + 90 days);
 
-        skip(90 days);
-        uint256 finalIndex = core.currentIndex();
-        uint256 shareAmount = core.lot(lotId).shareAmount;
-
-        uint256 firstPeriodProfit = _expectedAssetsForShares(shareAmount, firstCheckpointIndex)
-            - _expectedAssetsForShares(shareAmount, ONE_RAY);
-        uint256 secondPeriodProfit = _expectedAssetsForShares(shareAmount, secondCheckpointIndex)
-            - _expectedAssetsForShares(shareAmount, firstCheckpointIndex);
-        uint256 delayedChangeProfit = _expectedAssetsForShares(shareAmount, delayedAprCheckpointIndex)
-            - _expectedAssetsForShares(shareAmount, secondCheckpointIndex);
-        uint256 postAprChangeProfit = _expectedAssetsForShares(shareAmount, finalIndex)
-            - _expectedAssetsForShares(shareAmount, delayedAprCheckpointIndex);
-
-        uint256 expectedReward = (firstPeriodProfit * 1_000) / 10_000 + (secondPeriodProfit * 2_000) / 10_000
-            + (delayedChangeProfit * 2_000) / 10_000 + (postAprChangeProfit * 2_000) / 10_000;
+        uint256 expectedReward = _expectedSponsorReward(1_000e6, 1_000, 90 days)
+            + _expectedSponsorReward(1_000e6, 2_000, 90 days + 24 hours + 90 days);
 
         assertEq(core.sponsorAccount(sponsor).accrued, expectedReward);
     }
@@ -241,7 +221,7 @@ contract SponsorAccrualTest is EarnTestBase {
         uint256 elapsed = 180 days;
         skip(elapsed);
 
-        uint256 expectedAccrued = _expectedSponsorReward(1_000e6, APR_20_PERCENT_BPS, 1_500, elapsed);
+        uint256 expectedAccrued = _expectedSponsorReward(1_000e6, 1_500, elapsed);
         assertEq(core.sponsorAccount(sponsor).accrued, expectedAccrued);
 
         vm.prank(admin);
@@ -265,7 +245,7 @@ contract SponsorAccrualTest is EarnTestBase {
         uint256 elapsed = 180 days;
         skip(elapsed);
 
-        uint256 expectedAccrued = _expectedSponsorReward(1_000e6, APR_20_PERCENT_BPS, 1_500, elapsed);
+        uint256 expectedAccrued = _expectedSponsorReward(1_000e6, 1_500, elapsed);
 
         vm.prank(admin);
         core.fundSponsorBudget(sponsor, expectedAccrued);
@@ -303,7 +283,7 @@ contract SponsorAccrualTest is EarnTestBase {
 
         skip(180 days);
 
-        uint256 expectedFirstSponsorAccrued = _expectedSponsorReward(1_000e6, APR_20_PERCENT_BPS, 1_000, 180 days);
+        uint256 expectedFirstSponsorAccrued = _expectedSponsorReward(1_000e6, 1_000, 180 days);
 
         vm.prank(admin);
         core.fundSponsorBudget(sponsor, expectedFirstSponsorAccrued);
