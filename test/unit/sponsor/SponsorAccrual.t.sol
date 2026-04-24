@@ -155,7 +155,7 @@ contract SponsorAccrualTest is EarnTestBase {
         skip(30 days);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, 250e6);
+        core.requestWithdrawal(lotId, 2_500e6);
 
         skip(30 days);
 

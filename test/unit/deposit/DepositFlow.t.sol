@@ -37,7 +37,7 @@ contract DepositFlowTest is EarnTestBase {
 
         assertEq(lotId, 1);
         _assertPopulatedLot(core.lot(lotId), lotId, alice, 1_000e6);
-        assertEq(shareToken.balanceOf(alice), 1_000e6);
+        assertEq(shareToken.balanceOf(alice), 10_000e6);
         assertEq(core.lot(lotId).entryIndexRay, core.currentIndex());
         assertEq(core.lot(lotId).lastIndexRay, core.currentIndex());
     }
@@ -58,8 +58,8 @@ contract DepositFlowTest is EarnTestBase {
         vm.prank(alice);
         core.deposit(1_000e6, alice);
 
-        assertEq(core.totals().bufferAssets, 300e6);
-        assertEq(core.totals().treasuryReportedAssets, 700e6);
+        assertEq(core.availableLiquidity(), 300e6);
+        assertEq(assetToken.balanceOf(treasury), 700e6);
     }
 
     function test_depositAfterIndexGrowthMintsFewerSharesThanAssets() public {
@@ -78,7 +78,7 @@ contract DepositFlowTest is EarnTestBase {
         assertEq(core.lot(lotId).entryIndexRay, expectedIndex);
         assertEq(core.lot(lotId).shareAmount, expectedShares);
         assertEq(shareToken.balanceOf(alice), expectedShares);
-        assertLt(expectedShares, 1_000e6);
+        assertLt(expectedShares, 10_000e6);
     }
 
     function test_setTreasuryRatioRevertsWhenAboveBpsDenominator() public {
@@ -108,7 +108,7 @@ contract DepositFlowTest is EarnTestBase {
         vm.prank(alice);
         core.deposit(100_000, alice);
 
-        assertEq(shareToken.balanceOf(alice), 100_000);
+        assertEq(shareToken.balanceOf(alice), 1_000_000);
     }
 
     function test_lotsByOwnerReturnsOwnedLotsInInsertionOrder() public {
@@ -172,7 +172,7 @@ contract DepositFlowTest is EarnTestBase {
         vm.prank(admin);
         core.setApr(10_000);
 
-        skip(24 hours + (YEAR_IN_SECONDS * 1_000_001));
+        skip(24 hours + (YEAR_IN_SECONDS * 10_000_001));
 
         uint256 currentIndexRay = core.currentIndex();
 

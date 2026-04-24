@@ -66,7 +66,6 @@ library EarnTypes {
         uint256 frozenWithdrawalLiability;
         uint256 sponsorRewardLiability;
         uint256 sponsorRewardClaimable;
-        uint256 bufferAssets;
         uint256 treasuryReportedAssets;
     }
 }

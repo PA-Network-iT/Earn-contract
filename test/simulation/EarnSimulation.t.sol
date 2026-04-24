@@ -91,8 +91,9 @@ contract EarnSimulationTest is EarnTestBase {
     ///      In production the treasury manager calls replenishBuffer before users execute.
     function _ensureBufferForWithdrawals() internal {
         ProductTotalsView memory t = core.totals();
-        if (t.frozenWithdrawalLiability > t.bufferAssets) {
-            uint256 shortfall = t.frozenWithdrawalLiability - t.bufferAssets;
+        uint256 liquidity = core.availableLiquidity();
+        if (t.frozenWithdrawalLiability > liquidity) {
+            uint256 shortfall = t.frozenWithdrawalLiability - liquidity;
             console2.log("  [BUFFER] shortfall=%s, replenishing...", shortfall);
             _fundAndApprove(admin, shortfall + 1e6);
             vm.prank(admin);
@@ -102,9 +103,9 @@ contract EarnSimulationTest is EarnTestBase {
 
     /// @dev Replenishes buffer to cover a specific withdrawal amount.
     function _ensureBufferForAmount(uint256 amount) internal {
-        ProductTotalsView memory t = core.totals();
-        if (amount > t.bufferAssets) {
-            uint256 shortfall = amount - t.bufferAssets;
+        uint256 liquidity = core.availableLiquidity();
+        if (amount > liquidity) {
+            uint256 shortfall = amount - liquidity;
             _fundAndApprove(admin, shortfall + 1e6);
             vm.prank(admin);
             core.replenishBuffer(shortfall + 1e6);
@@ -143,7 +144,7 @@ contract EarnSimulationTest is EarnTestBase {
         _logUsdc("frozenWithdraw", t.frozenWithdrawalLiability);
         _logUsdc("sponsorLiab   ", t.sponsorRewardLiability);
         _logUsdc("sponsorClaim  ", t.sponsorRewardClaimable);
-        _logUsdc("buffer        ", t.bufferAssets);
+        _logUsdc("liquidity     ", core.availableLiquidity());
         _logUsdc("treasury      ", t.treasuryReportedAssets);
         _logUsdc("contractBal   ", assetToken.balanceOf(address(core)));
         _logIndex("globalIndex   ", core.currentIndex());
@@ -596,13 +597,15 @@ contract EarnSimulationTest is EarnTestBase {
         WithdrawalRequestView memory req = core.withdrawalRequest(user);
         ProductTotalsView memory t = core.totals();
 
-        if (req.assetAmountSnapshot > t.bufferAssets) {
+        uint256 liquidity = core.availableLiquidity();
+        if (req.assetAmountSnapshot > liquidity) {
             vm.prank(user);
             vm.expectRevert();
             core.executeWithdrawal();
 
+            _fundAndApprove(admin, req.assetAmountSnapshot - liquidity + 1);
             vm.prank(admin);
-            core.replenishBuffer(req.assetAmountSnapshot - t.bufferAssets + 1);
+            core.replenishBuffer(req.assetAmountSnapshot - liquidity + 1);
 
             uint256 paid = _executeWithdrawalAs(user);
             assertGt(paid, 0);
@@ -816,7 +819,6 @@ contract EarnSimulationTest is EarnTestBase {
         uint256 deposit = 100_000e6;
         _depositAs(user, deposit);
 
-        ProductTotalsView memory t = core.totals();
         uint256 expectedTreasury = (deposit * TREASURY_RATIO_BPS) / 10_000;
         uint256 expectedBuffer = deposit - expectedTreasury;
 
@@ -825,12 +827,12 @@ contract EarnSimulationTest is EarnTestBase {
         _logUsdc("deposit         ", deposit);
         _logUsdc("expectedTreasury", expectedTreasury);
         _logUsdc("expectedBuffer  ", expectedBuffer);
-        _logUsdc("actualTreasury  ", t.treasuryReportedAssets);
-        _logUsdc("actualBuffer    ", t.bufferAssets);
+        _logUsdc("treasuryWalBal  ", assetToken.balanceOf(treasury));
+        _logUsdc("actualLiquidity ", core.availableLiquidity());
 
-        assertEq(t.treasuryReportedAssets, expectedTreasury);
-        assertEq(t.bufferAssets, expectedBuffer);
-        assertEq(t.userPrincipalLiability, deposit);
+        assertEq(assetToken.balanceOf(treasury), expectedTreasury);
+        assertEq(core.availableLiquidity(), expectedBuffer);
+        assertEq(core.totals().userPrincipalLiability, deposit);
     }
 
     // =========================================================================
@@ -1142,10 +1144,11 @@ contract EarnSimulationTest is EarnTestBase {
             }
         }
 
-        ProductTotalsView memory t = core.totals();
-        if (totalBufferNeeded > t.bufferAssets) {
+        uint256 currentLiquidity = core.availableLiquidity();
+        if (totalBufferNeeded > currentLiquidity) {
+            _fundAndApprove(admin, totalBufferNeeded - currentLiquidity + 1e6);
             vm.prank(admin);
-            core.replenishBuffer(totalBufferNeeded - t.bufferAssets + 1e6);
+            core.replenishBuffer(totalBufferNeeded - currentLiquidity + 1e6);
         }
 
         for (uint256 i = 0; i < userCount; i++) {
@@ -1324,14 +1327,8 @@ contract EarnSimulationTest is EarnTestBase {
         _depositAs(user, deposit);
 
         uint256 expectedTreasury = (deposit * 5_000) / 10_000;
-        ProductTotalsView memory t = core.totals();
-        assertEq(t.treasuryReportedAssets, expectedTreasury);
-
-        vm.prank(admin);
-        core.transferToTreasury(treasury, expectedTreasury);
-
-        ProductTotalsView memory tAfterTransfer = core.totals();
-        assertEq(tAfterTransfer.treasuryReportedAssets, 0);
+        assertEq(assetToken.balanceOf(treasury), expectedTreasury);
+        assertEq(core.availableLiquidity(), deposit - expectedTreasury);
 
         skip(QUARTER);
 
@@ -1340,10 +1337,10 @@ contract EarnSimulationTest is EarnTestBase {
         skip(24 hours);
 
         WithdrawalRequestView memory req = core.withdrawalRequest(user);
-        ProductTotalsView memory tBeforeReplenish = core.totals();
 
-        if (req.assetAmountSnapshot > tBeforeReplenish.bufferAssets) {
-            uint256 shortfall = req.assetAmountSnapshot - tBeforeReplenish.bufferAssets;
+        uint256 availLiq = core.availableLiquidity();
+        if (req.assetAmountSnapshot > availLiq) {
+            uint256 shortfall = req.assetAmountSnapshot - availLiq;
             _fundAndApprove(admin, shortfall + 1e6);
             vm.prank(admin);
             core.replenishBuffer(shortfall + 1e6);
@@ -1406,7 +1403,7 @@ contract EarnSimulationTest is EarnTestBase {
 
         skip(QUARTER);
 
-        _requestWithdrawalAs(user, lotId, 1);
+        _requestWithdrawalAs(user, lotId, 10);
 
         LotView memory l = core.lot(lotId);
         assertFalse(l.isFrozen);
@@ -1516,8 +1513,9 @@ contract EarnSimulationTest is EarnTestBase {
 
         // Replenish buffer if needed
         ProductTotalsView memory tPre = core.totals();
-        if (tPre.frozenWithdrawalLiability > tPre.bufferAssets) {
-            uint256 needed = tPre.frozenWithdrawalLiability - tPre.bufferAssets;
+        uint256 preLiq = core.availableLiquidity();
+        if (tPre.frozenWithdrawalLiability > preLiq) {
+            uint256 needed = tPre.frozenWithdrawalLiability - preLiq;
             _fundAndApprove(admin, needed + 1e6);
             vm.prank(admin);
             core.replenishBuffer(needed + 1e6);
@@ -1553,9 +1551,8 @@ contract EarnSimulationTest is EarnTestBase {
         assertLt(bl3Idx, globalIdx);
 
         // Verify totals consistency
-        ProductTotalsView memory tFinal = core.totals();
         assertGe(
-            tFinal.bufferAssets + tFinal.treasuryReportedAssets,
+            core.availableLiquidity(),
             0,
             "protocol should remain solvent"
         );
@@ -1735,16 +1732,14 @@ contract EarnSimulationTest is EarnTestBase {
 
         ProductTotalsView memory t = core.totals();
         uint256 contractBalance = assetToken.balanceOf(address(core));
-        uint256 reserved = t.bufferAssets + t.sponsorRewardClaimable;
+        uint256 liquidity = core.availableLiquidity();
 
         console2.log("--- Solvency check ---");
         _logUsdc("contractBalance", contractBalance);
-        _logUsdc("bufferAssets   ", t.bufferAssets);
+        _logUsdc("liquidity      ", liquidity);
         _logUsdc("sponsorClaim   ", t.sponsorRewardClaimable);
-        _logUsdc("reserved (sum) ", reserved);
-        _logUsdc("surplus        ", contractBalance - reserved);
-        console2.log("  PASS: contractBalance >= reserved");
+        console2.log("  PASS: contractBalance >= sponsorClaimable");
 
-        assertGe(contractBalance, reserved, "solvency: balance >= buffer + claimable");
+        assertGe(contractBalance, t.sponsorRewardClaimable, "solvency: balance >= claimable");
     }
 }

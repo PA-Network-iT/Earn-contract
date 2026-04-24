@@ -17,6 +17,7 @@ import {MockUSDC} from "test/shared/mocks/MockUSDC.sol";
 /// @notice Shared Foundry fixture that deploys the core proxy, share-token proxy, and mock asset.
 abstract contract EarnTestBase is Test {
     uint256 internal constant ONE_RAY = 1e27;
+    uint256 internal constant INITIAL_INDEX_RAY = 1e26;
     uint256 internal constant YEAR_IN_SECONDS = 365 days;
     uint256 internal constant APR_20_PERCENT_BPS = 2_000;
     uint256 internal constant APR_10_PERCENT_BPS = 1_000;
@@ -40,7 +41,7 @@ abstract contract EarnTestBase is Test {
 
         EarnCore implementation = new EarnCore();
         ERC1967Proxy proxy =
-            new ERC1967Proxy(address(implementation), abi.encodeCall(EarnCore.initialize, (admin, asset, block.timestamp, 0)));
+            new ERC1967Proxy(address(implementation), abi.encodeCall(EarnCore.initialize, (admin, asset, treasury, block.timestamp, 0)));
         EarnShareToken tokenImplementation = new EarnShareToken();
         ERC1967Proxy tokenProxy = new ERC1967Proxy(
             address(tokenImplementation), abi.encodeCall(EarnShareToken.initialize, ("EARN LP", "eLP", address(proxy)))
@@ -57,7 +58,7 @@ abstract contract EarnTestBase is Test {
     }
 
     function _expectedLinearIndex(uint256 aprBps, uint256 elapsed) internal pure returns (uint256) {
-        return ONE_RAY + ((ONE_RAY * aprBps * elapsed) / (YEAR_IN_SECONDS * 10_000));
+        return INITIAL_INDEX_RAY + ((INITIAL_INDEX_RAY * aprBps * elapsed) / (YEAR_IN_SECONDS * 10_000));
     }
 
     function _expectedLinearIndexFromAnchor(uint256 anchorIndexRay, uint256 aprBps, uint256 elapsed)

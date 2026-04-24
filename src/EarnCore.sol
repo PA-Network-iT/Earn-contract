@@ -15,6 +15,7 @@ import {IndexLib} from "src/lib/IndexLib.sol";
 import {SponsorLib} from "src/lib/SponsorLib.sol";
 import {WithdrawalLib} from "src/lib/WithdrawalLib.sol";
 import {EarnStorage} from "src/storage/EarnStorage.sol";
+import {ISubscriptionManager} from "src/subscription/ISubscriptionManager.sol";
 
 error Blacklisted(address account);
 error InvalidApr(uint256 aprBps);
@@ -42,8 +43,12 @@ error InvalidMinimumDeposit(uint256 minimumAssets);
 error InvalidAdmin(address admin);
 error InvalidAsset(address asset);
 error InvalidGenesisTimestamp(uint256 genesisTimestamp);
+error InvalidTreasuryWallet(address treasuryWallet);
 error NotBlacklisted(address account);
 error InvalidForceWithdrawalLot(uint256 lotId);
+error SubscriptionRequired(address user);
+error InvalidSubscriptionManager(address manager);
+error UnauthorizedSponsorManager(address caller);
 
 /// @notice Core contract for the EARN product.
 /// @dev Holds assets, manages lots, and coordinates share and sponsor accounting.
@@ -90,11 +95,32 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     event TreasuryTransferred(address indexed caller, address indexed recipient, uint256 amount);
     event BufferReplenished(address indexed caller, uint256 amount, uint256 reclassifiedTreasuryAmount);
     event MinimumDepositUpdated(uint256 newMinimumAssets);
+    event TreasuryWalletUpdated(address indexed newTreasuryWallet);
     event ShareTokenSet(address indexed shareToken);
     event ForceWithdrawalExecuted(
         address indexed user, uint256 indexed lotId, uint256 assetsPaid, uint256 payoutIndexRay
     );
     event UserRehabilitated(address indexed account, uint256 lotsRestored);
+    event SubscriptionManagerSet(address indexed subscriptionManager);
+
+    /// @dev Reverts when the subscription gate is active and `user` has no active subscription.
+    ///      Gate is intentionally permissive while `_subscriptionManager` is zero so that the
+    ///      bootstrap sequence (deploy v2 impl → upgrade → setSubscriptionManager) cannot brick
+    ///      existing users in the short window between the upgrade and the wiring transaction.
+    modifier onlyActiveSubscriber(address user) {
+        address manager = _subscriptionManager;
+        if (manager != address(0) && !ISubscriptionManager(manager).hasActiveSubscription(user)) {
+            revert SubscriptionRequired(user);
+        }
+        _;
+    }
+
+    modifier onlySponsorManager() {
+        if (!hasRole(PARAMETER_MANAGER_ROLE, msg.sender) && !hasRole(SUBSCRIPTION_MANAGER_ROLE, msg.sender)) {
+            revert UnauthorizedSponsorManager(msg.sender);
+        }
+        _;
+    }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -106,24 +132,28 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     /// @notice Initializes the core proxy.
     /// @param admin Address that receives the initial roles.
     /// @param asset_ Deposit and withdrawal asset.
+    /// @param treasuryWallet_ Wallet that receives the treasury portion of deposits.
     /// @param genesisTimestamp Index epoch start. Can be in the past (retroactive launch)
     ///        or in the future (scheduled launch). Must not be zero.
     /// @param initialAprBps APR in basis points active from genesis. Pass 0 for a flat index until the first setApr call.
-    function initialize(address admin, address asset_, uint256 genesisTimestamp, uint256 initialAprBps)
-        external
-        initializer
-    {
+    function initialize(
+        address admin,
+        address asset_,
+        address treasuryWallet_,
+        uint256 genesisTimestamp,
+        uint256 initialAprBps
+    ) external initializer {
         if (admin == address(0)) {
             revert InvalidAdmin(admin);
         }
         if (asset_ == address(0)) {
             revert InvalidAsset(asset_);
         }
+        if (treasuryWallet_ == address(0)) {
+            revert InvalidTreasuryWallet(treasuryWallet_);
+        }
         if (genesisTimestamp == 0) {
             revert InvalidGenesisTimestamp(genesisTimestamp);
-        }
-        if (initialAprBps > MAX_APR_BPS) {
-            revert InvalidApr(initialAprBps);
         }
 
         __AccessControl_init();
@@ -136,11 +166,12 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         _grantRole(UPGRADER_ROLE, admin);
 
         _asset = asset_;
+        _treasuryWallet = treasuryWallet_;
         _aprVersions.push(
             EarnTypes.AprVersion({
                 startTimestamp: uint64(genesisTimestamp),
-                aprBps: uint32(initialAprBps),
-                anchorIndexRay: uint160(IndexLib.ONE_RAY)
+                aprBps: _checkedGenesisAprBps(initialAprBps),
+                anchorIndexRay: uint160(IndexLib.ONE_RAY / 10)
             })
         );
         _globalSponsorLiabilityIndexRay = genesisTimestamp;
@@ -148,17 +179,12 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         _minDeposit = DEFAULT_MIN_DEPOSIT;
     }
 
-    /// @notice V2 migration: sets a retroactive APR on the genesis checkpoint.
-    /// @dev Call via `upgradeToAndCall` on deployed proxies that were initialized with aprBps == 0.
-    /// @param initialAprBps APR in basis points to apply from genesis.
-    function initializeV2(uint256 initialAprBps) external reinitializer(2) {
+    /// @dev Validates and downcasts the genesis APR value.
+    function _checkedGenesisAprBps(uint256 initialAprBps) private pure returns (uint32) {
         if (initialAprBps > MAX_APR_BPS) {
             revert InvalidApr(initialAprBps);
         }
-        if (_aprVersions.length == 0) {
-            revert InvalidGenesisTimestamp(0);
-        }
-        _aprVersions[0].aprBps = uint32(initialAprBps);
+        return uint32(initialAprBps);
     }
 
     // ===== Configuration =====
@@ -201,13 +227,56 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         emit MinimumDepositUpdated(newMinimumAssets);
     }
 
+    /// @notice Returns the treasury wallet address.
+    /// @return Treasury wallet address.
+    function treasuryWallet() external view returns (address) {
+        return _treasuryWallet;
+    }
+
+    /// @notice Returns the currently wired SubscriptionManager. Zero means gate is inactive.
+    /// @return manager SubscriptionManager address.
+    function subscriptionManager() external view returns (address manager) {
+        return _subscriptionManager;
+    }
+
+    /// @notice Wires the SubscriptionManager that gates user-facing operations.
+    /// @param manager SubscriptionManager proxy address. Must be non-zero and contain bytecode.
+    function setSubscriptionManager(address manager) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (manager == address(0) || manager.code.length == 0) {
+            revert InvalidSubscriptionManager(manager);
+        }
+        _subscriptionManager = manager;
+        emit SubscriptionManagerSet(manager);
+    }
+
+    /// @notice Updates the treasury wallet address.
+    /// @param newTreasuryWallet New treasury wallet address.
+    function setTreasuryWallet(address newTreasuryWallet) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newTreasuryWallet == address(0)) {
+            revert InvalidTreasuryWallet(newTreasuryWallet);
+        }
+        _treasuryWallet = newTreasuryWallet;
+        emit TreasuryWalletUpdated(newTreasuryWallet);
+    }
+
+    /// @notice Returns the available liquidity in the contract (actual USDC balance minus reserves).
+    /// @return Available liquidity in asset units.
+    function availableLiquidity() external view returns (uint256) {
+        return _availableLiquidity();
+    }
+
     // ===== User actions =====
 
     /// @notice Deposits assets and opens a new lot.
     /// @param assets Asset amount in token decimals.
     /// @param receiver Receiver of the new lot.
     /// @return lotId Newly created lot id.
-    function deposit(uint256 assets, address receiver) external nonReentrant returns (uint256 lotId) {
+    function deposit(uint256 assets, address receiver)
+        external
+        nonReentrant
+        onlyActiveSubscriber(receiver)
+        returns (uint256 lotId)
+    {
         _requireNotBlacklisted(msg.sender);
         _requireNotBlacklisted(receiver);
         if (receiver == address(0)) {
@@ -227,13 +296,14 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         uint256 treasuryShare = (assets * _treasuryRatioBps) / IndexLib.BPS_DENOMINATOR;
         uint256 bufferShare = assets - treasuryShare;
 
-        IERC20(_asset).safeTransferFrom(msg.sender, address(this), assets);
+        IERC20(_asset).safeTransferFrom(msg.sender, address(this), bufferShare);
+        if (treasuryShare > 0) {
+            IERC20(_asset).safeTransferFrom(msg.sender, _treasuryWallet, treasuryShare);
+        }
 
         _nextLotId += 1;
 
         _totals.userPrincipalLiability += assets;
-        _totals.bufferAssets += bufferShare;
-        _totals.treasuryReportedAssets += treasuryShare;
 
         address sponsor = _userSponsors[receiver];
         uint256 sponsorAccumulatorRay = 0;
@@ -281,7 +351,11 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     /// @notice Creates a withdrawal request for a lot.
     /// @param lotId Lot to withdraw from.
     /// @param shareAmount Share amount to withdraw.
-    function requestWithdrawal(uint256 lotId, uint256 shareAmount) external nonReentrant {
+    function requestWithdrawal(uint256 lotId, uint256 shareAmount)
+        external
+        nonReentrant
+        onlyActiveSubscriber(msg.sender)
+    {
         _requireNotBlacklisted(msg.sender);
 
         if (_requestWithdrawalPaused) {
@@ -368,7 +442,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     }
 
     /// @notice Cancels the caller's active withdrawal request.
-    function cancelWithdrawal() external nonReentrant {
+    function cancelWithdrawal() external nonReentrant onlyActiveSubscriber(msg.sender) {
         _requireNotBlacklisted(msg.sender);
         uint256 requestId = _activeWithdrawalRequestIds[msg.sender];
         EarnTypes.WithdrawalRequest storage request = _withdrawalRequests[requestId];
@@ -417,7 +491,12 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
 
     /// @notice Executes the caller's active withdrawal request.
     /// @return assetsPaid Asset amount paid to the caller.
-    function executeWithdrawal() external nonReentrant returns (uint256 assetsPaid) {
+    function executeWithdrawal()
+        external
+        nonReentrant
+        onlyActiveSubscriber(msg.sender)
+        returns (uint256 assetsPaid)
+    {
         _requireNotBlacklisted(msg.sender);
 
         if (_executeWithdrawalPaused) {
@@ -437,14 +516,13 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         }
 
         assetsPaid = request.assetAmountSnapshot;
-        uint256 availableLiquidity = _totals.bufferAssets;
-        if (assetsPaid > availableLiquidity) {
-            revert InsufficientLiquidity(assetsPaid, availableLiquidity);
+        uint256 liquidity = _availableLiquidity();
+        if (assetsPaid > liquidity) {
+            revert InsufficientLiquidity(assetsPaid, liquidity);
         }
 
         request.executed = true;
         _totals.frozenWithdrawalLiability -= assetsPaid;
-        _totals.bufferAssets = availableLiquidity - assetsPaid;
 
         EarnTypes.Lot storage withdrawalLot = _lots[request.lotId];
         if (withdrawalLot.isFrozen) {
@@ -459,7 +537,12 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     /// @notice Claims sponsor rewards up to the requested amount.
     /// @param requestedAmount Requested payout amount.
     /// @return paidAmount Amount paid to the sponsor.
-    function claimSponsorReward(uint256 requestedAmount) external nonReentrant returns (uint256 paidAmount) {
+    function claimSponsorReward(uint256 requestedAmount)
+        external
+        nonReentrant
+        onlyActiveSubscriber(msg.sender)
+        returns (uint256 paidAmount)
+    {
         _requireNotBlacklisted(msg.sender);
 
         _checkpointSponsorState(msg.sender);
@@ -512,7 +595,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     /// @notice Assigns a sponsor to a user for future deposits.
     /// @param user User address.
     /// @param sponsor Sponsor address.
-    function setSponsor(address user, address sponsor) external onlyRole(PARAMETER_MANAGER_ROLE) {
+    function setSponsor(address user, address sponsor) external onlySponsorManager {
         _userSponsors[user] = sponsor;
         if (sponsor != address(0)) {
             _trackSponsor(sponsor);
@@ -533,7 +616,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     /// @notice Updates the rate for a sponsor.
     /// @param sponsor Sponsor address.
     /// @param newRateBps New rate in basis points.
-    function setSponsorRate(address sponsor, uint256 newRateBps) external onlyRole(PARAMETER_MANAGER_ROLE) {
+    function setSponsorRate(address sponsor, uint256 newRateBps) external onlySponsorManager {
         if (newRateBps > _maxSponsorRateBps) {
             revert InvalidSponsorRate(newRateBps);
         }
@@ -627,14 +710,14 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         uint256 payoutIndex = capAt != 0 ? _aprVersions.currentIndex(capAt) : currentIndex();
         assetsPaid = IndexLib.previewAssetsForShares(shareAmount, payoutIndex);
 
-        if (assetsPaid > _totals.bufferAssets) {
-            revert InsufficientLiquidity(assetsPaid, _totals.bufferAssets);
+        uint256 liquidity = _availableLiquidity();
+        if (assetsPaid > liquidity) {
+            revert InsufficientLiquidity(assetsPaid, liquidity);
         }
 
         _adjustYieldTrackingOnWithdrawal(userLot, shareAmount, principalAssets);
 
         _totals.userPrincipalLiability -= principalAssets;
-        _totals.bufferAssets -= assetsPaid;
 
         userLot.isClosed = true;
 
@@ -702,7 +785,7 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         emit TreasuryTransferred(msg.sender, recipient, amount);
     }
 
-    /// @notice Replenishes the liquid buffer.
+    /// @notice Replenishes the liquid buffer by transferring assets into the core.
     /// @param amount Asset amount transferred into the core.
     function replenishBuffer(uint256 amount) external nonReentrant onlyRole(TREASURY_MANAGER_ROLE) {
         IERC20(_asset).safeTransferFrom(msg.sender, address(this), amount);
@@ -712,7 +795,6 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
         }
 
         _totals.treasuryReportedAssets -= reclassifiedTreasuryAssets;
-        _totals.bufferAssets += amount;
         emit BufferReplenished(msg.sender, amount, reclassifiedTreasuryAssets);
     }
 
@@ -904,16 +986,23 @@ contract EarnCore is Initializable, AccessControlUpgradeable, ReentrancyGuardTra
     /// @dev Returns treasury assets that can leave the contract without touching reserved balances.
     function _transferableTreasuryAssets() internal view returns (uint256 available) {
         uint256 liquidBalance = IERC20(_asset).balanceOf(address(this));
-        uint256 reservedBalance = _totals.bufferAssets + _totals.sponsorRewardClaimable;
+        uint256 reserved = _totals.sponsorRewardClaimable;
 
-        if (liquidBalance <= reservedBalance) {
+        if (liquidBalance <= reserved) {
             return 0;
         }
 
-        available = liquidBalance - reservedBalance;
+        available = liquidBalance - reserved;
         if (available > _totals.treasuryReportedAssets) {
             available = _totals.treasuryReportedAssets;
         }
+    }
+
+    /// @dev Returns the available liquidity derived from the actual USDC balance minus reserved sponsor rewards.
+    function _availableLiquidity() internal view returns (uint256) {
+        uint256 balance = IERC20(_asset).balanceOf(address(this));
+        uint256 reserved = _totals.sponsorRewardClaimable;
+        return balance > reserved ? balance - reserved : 0;
     }
 
     /// @dev Returns the configured minimum deposit or the legacy default.

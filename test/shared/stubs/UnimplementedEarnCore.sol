@@ -39,8 +39,7 @@ contract UnimplementedEarnCore is IEarnCoreSpec {
         _shareToken = address(proxy);
     }
 
-    function initialize(address, address, uint256, uint256) external pure {}
-    function initializeV2(uint256) external pure {}
+    function initialize(address, address, address, uint256, uint256) external pure {}
 
     function shareToken() external view returns (address) {
         return _shareToken;
@@ -92,7 +91,6 @@ contract UnimplementedEarnCore is IEarnCoreSpec {
         uint256 bufferShare = assets - treasuryShare;
 
         _totals.userPrincipalLiability += assets;
-        _totals.bufferAssets += bufferShare;
         _totals.treasuryReportedAssets += treasuryShare;
 
         _lots[_nextLotId] = LotView({
@@ -161,6 +159,14 @@ contract UnimplementedEarnCore is IEarnCoreSpec {
     function replenishBuffer(uint256) external pure {}
 
     function upgradeToAndCall(address, bytes calldata) external pure {}
+
+    function availableLiquidity() external pure returns (uint256) {
+        return 0;
+    }
+
+    function treasuryWallet() external pure returns (address) {
+        return address(0);
+    }
 
     function currentIndex() external pure returns (uint256) {
         return ONE_RAY;

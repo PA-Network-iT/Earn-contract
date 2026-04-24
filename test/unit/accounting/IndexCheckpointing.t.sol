@@ -6,8 +6,8 @@ import {InvalidApr, PendingAprUpdate} from "test/shared/interfaces/EarnSpecInter
 
 /// @notice Unit tests for APR checkpoints and linear index materialization across time.
 contract IndexCheckpointingTest is EarnTestBase {
-    function test_currentIndexStartsAtOneRay() public view {
-        assertEq(core.currentIndex(), ONE_RAY);
+    function test_currentIndexStartsAtInitialIndexRay() public view {
+        assertEq(core.currentIndex(), INITIAL_INDEX_RAY);
     }
 
     function test_indexGrowsLinearlyForAprPeriods() public {
@@ -66,7 +66,7 @@ contract IndexCheckpointingTest is EarnTestBase {
 
         skip(24 hours + elapsed);
 
-        uint256 expected = ONE_RAY + ((ONE_RAY * aprBps * elapsed) / (YEAR_IN_SECONDS * 10_000));
+        uint256 expected = INITIAL_INDEX_RAY + ((INITIAL_INDEX_RAY * aprBps * elapsed) / (YEAR_IN_SECONDS * 10_000));
         assertEq(core.currentIndex(), expected);
     }
 
@@ -75,7 +75,7 @@ contract IndexCheckpointingTest is EarnTestBase {
         core.setApr(APR_20_PERCENT_BPS);
 
         skip(12 hours);
-        assertEq(core.currentIndex(), ONE_RAY);
+        assertEq(core.currentIndex(), INITIAL_INDEX_RAY);
 
         skip(12 hours + 90 days);
         assertEq(core.currentIndex(), _expectedLinearIndex(APR_20_PERCENT_BPS, 90 days));

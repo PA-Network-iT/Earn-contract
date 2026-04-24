@@ -73,7 +73,6 @@ struct ProductTotalsView {
     uint256 frozenWithdrawalLiability;
     uint256 sponsorRewardLiability;
     uint256 sponsorRewardClaimable;
-    uint256 bufferAssets;
     uint256 treasuryReportedAssets;
 }
 
@@ -99,8 +98,7 @@ interface IEarnShareTokenSpec {
 
 /// @notice Behavioral interface used by tests to exercise core implementations and upgrade mocks.
 interface IEarnCoreSpec {
-    function initialize(address admin, address asset, uint256 genesisTimestamp, uint256 initialAprBps) external;
-    function initializeV2(uint256 initialAprBps) external;
+    function initialize(address admin, address asset, address treasuryWallet, uint256 genesisTimestamp, uint256 initialAprBps) external;
     function shareToken() external view returns (address);
     function setShareToken(address shareToken) external;
     function grantRole(bytes32 role, address account) external;
@@ -134,6 +132,8 @@ interface IEarnCoreSpec {
     function replenishBuffer(uint256 amount) external;
     function upgradeToAndCall(address newImplementation, bytes calldata data) external;
 
+    function availableLiquidity() external view returns (uint256);
+    function treasuryWallet() external view returns (address);
     function currentIndex() external view returns (uint256);
     function currentIndex(address account) external view returns (uint256);
     function maxSponsorRateBps() external view returns (uint256);

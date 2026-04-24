@@ -30,13 +30,16 @@ contract SolvencyAccountingTest is EarnTestBase {
         vm.prank(alice);
         uint256 lotId = core.deposit(1_000e6, alice);
 
+        uint256 totalShares = shareToken.balanceOf(alice);
+        uint256 halfShares = totalShares / 2;
+
         skip(180 days);
-        uint256 expectedSnapshot = _expectedAssetsForShares(500e6, core.currentIndex());
+        uint256 expectedSnapshot = _expectedAssetsForShares(halfShares, core.currentIndex());
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, 500e6);
+        core.requestWithdrawal(lotId, halfShares);
 
-        uint256 expectedRemainingYield = _expectedAssetsForShares(500e6, core.currentIndex()) - 500e6;
+        uint256 expectedRemainingYield = _expectedAssetsForShares(halfShares, core.currentIndex()) - 500e6;
 
         assertEq(core.totals().userPrincipalLiability, 500e6);
         assertEq(core.totals().userYieldLiability, expectedRemainingYield);
@@ -46,9 +49,10 @@ contract SolvencyAccountingTest is EarnTestBase {
     function test_frozenWithdrawalLiabilityStopsGrowingAfterRequestSnapshot() public {
         vm.prank(alice);
         uint256 lotId = core.deposit(1_000e6, alice);
+        uint256 halfShares = shareToken.balanceOf(alice) / 2;
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, 500e6);
+        core.requestWithdrawal(lotId, halfShares);
 
         uint256 frozenLiability = core.totals().frozenWithdrawalLiability;
         assertGt(frozenLiability, 0);
@@ -107,11 +111,12 @@ contract SolvencyAccountingTest is EarnTestBase {
 
         vm.prank(alice);
         uint256 lotId = core.deposit(1_000e6, alice);
+        uint256 shares = shareToken.balanceOf(alice);
 
         skip(30 days);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, 1_000e6);
+        core.requestWithdrawal(lotId, shares);
 
         assertEq(core.totals().userYieldLiability, 0);
 
@@ -132,11 +137,12 @@ contract SolvencyAccountingTest is EarnTestBase {
 
         vm.prank(alice);
         uint256 lotId = core.deposit(1_000e6, alice);
+        uint256 shares = shareToken.balanceOf(alice);
 
         skip(30 days);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, 1_000e6);
+        core.requestWithdrawal(lotId, shares);
 
         vm.prank(admin);
         core.setBlacklist(alice, true);
@@ -166,10 +172,12 @@ contract SolvencyAccountingTest is EarnTestBase {
         vm.prank(alice);
         uint256 lotId = core.deposit(1_000e6, alice);
 
+        uint256 halfShares = shareToken.balanceOf(alice) / 2;
+
         skip(180 days);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, 500e6);
+        core.requestWithdrawal(lotId, halfShares);
 
         uint256 expectedRemainingYield = _expectedProfit(500e6, APR_20_PERCENT_BPS, 180 days);
         assertApproxEqAbs(core.totals().userYieldLiability, expectedRemainingYield, 1);

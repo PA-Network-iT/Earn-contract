@@ -16,6 +16,7 @@ contract DeployEarnScript is Script {
     function run() external returns (address proxyAddr, address implementationAddr) {
         address admin = vm.envAddress("EARN_ADMIN");
         address asset = vm.envAddress("EARN_ASSET");
+        address treasuryWallet = vm.envAddress("EARN_TREASURY_WALLET");
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         uint256 genesisTimestamp = vm.envOr("EARN_GENESIS_TIMESTAMP", block.timestamp);
         uint256 initialAprBps = vm.envOr("EARN_INITIAL_APR_BPS", uint256(0));
@@ -32,7 +33,7 @@ contract DeployEarnScript is Script {
         EarnCore implementation = new EarnCore();
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(implementation),
-            abi.encodeCall(EarnCore.initialize, (admin, asset, genesisTimestamp, initialAprBps))
+            abi.encodeCall(EarnCore.initialize, (admin, asset, treasuryWallet, genesisTimestamp, initialAprBps))
         );
 
         vm.stopBroadcast();

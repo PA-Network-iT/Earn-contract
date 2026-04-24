@@ -72,6 +72,9 @@ abstract contract EarnStorage {
     /// @dev Minimum deposit in asset units.
     uint256 internal _minDeposit;
 
+    /// @dev Treasury wallet that receives the treasury portion of deposits.
+    address internal _treasuryWallet;
+
     /// @dev Total shares of active lots not subject to a blacklist yield cap.
     uint256 internal _totalUncappedShares;
     /// @dev Total principal of active lots not subject to a blacklist yield cap.
@@ -79,6 +82,9 @@ abstract contract EarnStorage {
     /// @dev Pre-computed yield liability for lots whose yield is frozen at a blacklist cap.
     uint256 internal _cappedYieldLiability;
 
+    /// @dev SubscriptionManager gate address. Zero means the gate is inactive (pre-wiring).
+    address internal _subscriptionManager;
+
     /// @dev Reserved storage slots for future upgrades.
-    uint256[46] private __gap;
+    uint256[44] private __gap;
 }

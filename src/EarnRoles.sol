@@ -15,4 +15,7 @@ abstract contract EarnRoles {
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
     /// @notice Authorizes UUPS upgrades.
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+    /// @notice Granted to the SubscriptionManager contract. Allows minimal cross-contract calls
+    ///         (`setSponsor`, `setSponsorRate`) without giving it full `PARAMETER_MANAGER_ROLE`.
+    bytes32 public constant SUBSCRIPTION_MANAGER_ROLE = keccak256("SUBSCRIPTION_MANAGER_ROLE");
 }

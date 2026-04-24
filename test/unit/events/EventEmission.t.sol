@@ -41,7 +41,7 @@ contract EventEmissionTest is EarnTestBase {
     function test_setShareTokenEmitsEvent() public {
         EarnCore coreImpl = new EarnCore();
         ERC1967Proxy coreProxy =
-            new ERC1967Proxy(address(coreImpl), abi.encodeCall(EarnCore.initialize, (admin, asset, block.timestamp, 0)));
+            new ERC1967Proxy(address(coreImpl), abi.encodeCall(EarnCore.initialize, (admin, asset, treasury, block.timestamp, 0)));
         EarnShareToken tokenImpl = new EarnShareToken();
         ERC1967Proxy tokenProxy = new ERC1967Proxy(
             address(tokenImpl), abi.encodeCall(EarnShareToken.initialize, ("EARN LP", "eLP", address(coreProxy)))
@@ -68,20 +68,21 @@ contract EventEmissionTest is EarnTestBase {
 
     function test_treasuryTransferredEmitsCaller() public {
         vm.prank(admin);
-        core.setTreasuryRatio(7_000);
+        core.replenishBuffer(500e6);
 
-        vm.prank(alice);
-        core.deposit(1_000e6, alice);
+        vm.prank(admin);
+        core.reportTreasuryAssets(500e6);
 
         vm.expectEmit(true, true, false, true);
-        emit TreasuryTransferred(admin, treasury, 700e6);
+        emit TreasuryTransferred(admin, treasury, 500e6);
         vm.prank(admin);
-        core.transferToTreasury(treasury, 700e6);
+        core.transferToTreasury(treasury, 500e6);
     }
 
     function test_depositEmitsEvent() public {
+        uint256 expectedShares = (1_000e6 * 1e27) / core.currentIndex();
         vm.expectEmit(true, true, true, true);
-        emit Deposited(alice, alice, 1, 1_000e6, 1_000e6, address(0));
+        emit Deposited(alice, alice, 1, 1_000e6, expectedShares, address(0));
 
         vm.prank(alice);
         core.deposit(1_000e6, alice);

@@ -21,8 +21,9 @@ contract EarnLifecycleTest is EarnTestBase {
         vm.prank(admin);
         core.setApr(APR_10_PERCENT_BPS);
 
+        uint256 halfShares = shareToken.balanceOf(alice) / 2;
         vm.prank(alice);
-        core.requestWithdrawal(lotId, 500e6);
+        core.requestWithdrawal(lotId, halfShares);
 
         skip(24 hours);
 
