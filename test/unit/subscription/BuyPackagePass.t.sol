@@ -10,8 +10,7 @@ import {
     TierInactive,
     PassAlreadyExists,
     SponsorNotSubscribed,
-    SelfSponsorNotAllowed,
-    ReferrerMismatch
+    SelfSponsorNotAllowed
 } from "test/shared/subscription/SubscriptionErrors.sol";
 
 /// @notice Unit tests for `SubscriptionManager.buyPackagePass`.
@@ -19,13 +18,9 @@ import {
 ///      one (`PASS_SUBSCRIPTION_DURATION`). Existing subscriptions are extended (never shortened),
 ///      and sponsor / startedAt / SubscriptionNFT are preserved per I-2 / I-2a.
 contract BuyPackagePassTest is SubscriptionTestBase {
-    event PackagePassPurchased(
-        address indexed user,
-        uint16 indexed tierId,
-        uint32 seats,
-        uint256 pricePaid,
-        uint256 sponsorRateBps
-    );
+    event KycAuthorizationConsumed(address indexed user, uint8 indexed scope, uint256 nonce, uint64 expiresAt);
+    event PackagePassPurchased(address indexed user, uint16 indexed tierId, uint32 seats, uint256 pricePaid);
+    event PackagePassGranted(address indexed user, uint16 indexed tierId, uint32 seats);
     event SubscriptionPurchased(
         address indexed user,
         address indexed sponsor,
@@ -40,8 +35,8 @@ contract BuyPackagePassTest is SubscriptionTestBase {
 
     function setUp() public override {
         super.setUp();
-        tier1 = _addTier(200e6, 5, 1_000);
-        tier2 = _addTier(500e6, 15, 1_500);
+        tier1 = _addTier(200e6, 5);
+        tier2 = _addTier(500e6, 15);
         _grantGenesisSubscription(admin);
     }
 
@@ -54,12 +49,13 @@ contract BuyPackagePassTest is SubscriptionTestBase {
         uint64 expectedExpiresAt = uint64(block.timestamp) + manager.PASS_SUBSCRIPTION_DURATION();
 
         vm.expectEmit(true, true, false, true, address(manager));
+        emit KycAuthorizationConsumed(alice, TEST_KYC_SCOPE_PACKAGE_PASS, 0, uint64(block.timestamp + 1 hours));
+        vm.expectEmit(true, true, false, true, address(manager));
         emit SubscriptionPurchased(alice, address(0), uint64(block.timestamp), expectedExpiresAt, 0, false);
         vm.expectEmit(true, true, false, true, address(manager));
-        emit PackagePassPurchased(alice, tier1, 5, 200e6, 1_000);
+        emit PackagePassPurchased(alice, tier1, 5, 200e6);
 
-        vm.prank(alice);
-        manager.buyPackagePass(tier1, address(0));
+        _buyPackagePass(alice, tier1, address(0));
 
         SubscriptionManager.Pass memory p = manager.passOf(alice);
         assertEq(p.tierId, tier1);
@@ -87,11 +83,72 @@ contract BuyPackagePassTest is SubscriptionTestBase {
         assertEq(passNft.tierOf(alice), tier1);
         assertEq(passNft.seatsOf(alice), 5);
 
-        assertEq(earnCoreStub.sponsorRateBps(alice), 1_000);
-        assertEq(earnCoreStub.setSponsorRateCalls(), 1);
-
         assertEq(manager.totalRevenueSwept(), 0);
         assertEq(manager.pendingRevenue(), 200e6);
+    }
+
+    function test_adminGrantPackagePassHappyPath() public {
+        assertFalse(manager.hasActiveSubscription(bob));
+
+        uint64 expectedExpiresAt = uint64(block.timestamp) + manager.PASS_SUBSCRIPTION_DURATION();
+
+        vm.expectEmit(true, true, false, true, address(manager));
+        emit SubscriptionPurchased(bob, address(0), uint64(block.timestamp), expectedExpiresAt, 0, false);
+        vm.expectEmit(true, true, false, true, address(manager));
+        emit PackagePassGranted(bob, tier1, 5);
+
+        vm.prank(admin);
+        manager.adminGrantPackagePass(bob, tier1);
+
+        SubscriptionManager.Pass memory p = manager.passOf(bob);
+        assertEq(p.tierId, tier1);
+        assertEq(p.seats, 5);
+        assertEq(p.consumedSeats, 0);
+        assertEq(p.purchasedAt, uint64(block.timestamp));
+
+        SubscriptionManager.Subscription memory sub = manager.subscriptionOf(bob);
+        assertEq(sub.sponsor, address(0));
+        assertEq(sub.startedAt, uint64(block.timestamp));
+        assertEq(sub.expiresAt, expectedExpiresAt);
+
+        assertEq(passNft.ownerOf(passNft.tokenIdOf(bob)), bob);
+        assertEq(passNft.tierOf(bob), tier1);
+        assertEq(passNft.seatsOf(bob), 5);
+        assertEq(subNft.ownerOf(subNft.tokenIdOf(bob)), bob);
+        assertEq(usdc.balanceOf(address(manager)), 0);
+        assertEq(manager.pendingRevenue(), 0);
+    }
+
+    function test_adminGrantPackagePassPreservesExistingLongerSubscription() public {
+        _grantGenesisSubscription(bob);
+
+        vm.expectEmit(true, true, false, true, address(manager));
+        emit PackagePassGranted(bob, tier1, 5);
+
+        vm.prank(admin);
+        manager.adminGrantPackagePass(bob, tier1);
+
+        assertEq(manager.subscriptionOf(bob).expiresAt, type(uint64).max);
+        assertEq(subNft.balanceOf(bob), 1);
+        assertEq(passNft.tierOf(bob), tier1);
+    }
+
+    function test_adminGrantPackagePassRevertsIfPassAlreadyExists() public {
+        vm.prank(admin);
+        manager.adminGrantPackagePass(bob, tier1);
+
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(PassAlreadyExists.selector, bob));
+        manager.adminGrantPackagePass(bob, tier2);
+    }
+
+    function test_adminGrantPackagePassRevertsOnInactiveTier() public {
+        vm.prank(admin);
+        manager.removeTier(tier1);
+
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(TierInactive.selector, tier1));
+        manager.adminGrantPackagePass(bob, tier1);
     }
 
     function test_buyPassFirstTimeGrants20YearSubscriptionWithNullSponsor() public {
@@ -99,15 +156,12 @@ contract BuyPackagePassTest is SubscriptionTestBase {
         uint64 passDur = manager.PASS_SUBSCRIPTION_DURATION();
         assertEq(passDur, uint64(20 * 365 days));
 
-        vm.prank(bob);
-        manager.buyPackagePass(tier1, address(0));
+        _buyPackagePass(bob, tier1, address(0));
 
         SubscriptionManager.Subscription memory sub = manager.subscriptionOf(bob);
         assertEq(sub.startedAt, t0);
         assertEq(sub.expiresAt, t0 + passDur);
         assertEq(sub.sponsor, address(0));
-        // EarnCore setSponsor was NOT called for bob — sponsor binding is only through buySubscription.
-        assertEq(earnCoreStub.setSponsorCalls(), 0);
     }
 
     function test_buyPassExtendsExistingShorterSubscriptionTo20Years() public {
@@ -128,8 +182,7 @@ contract BuyPackagePassTest is SubscriptionTestBase {
         // isRenewal = true because alice already had a record.
         vm.expectEmit(true, true, false, true, address(manager));
         emit SubscriptionPurchased(alice, admin, originalStartedAt, expectedExpires, 0, true);
-        vm.prank(alice);
-        manager.buyPackagePass(tier1, address(0));
+        _buyPackagePass(alice, tier1, address(0));
 
         SubscriptionManager.Subscription memory after_ = manager.subscriptionOf(alice);
         assertEq(after_.startedAt, originalStartedAt, "startedAt immutable");
@@ -150,8 +203,7 @@ contract BuyPackagePassTest is SubscriptionTestBase {
 
         // No SubscriptionPurchased event should fire — existing already covers the target window.
         // (We can't easily assert "no emit" without `recordLogs`; assert state instead.)
-        vm.prank(admin);
-        manager.buyPackagePass(tier1, address(0));
+        _buyPackagePass(admin, tier1, address(0));
 
         assertEq(manager.subscriptionOf(admin).expiresAt, maxTs, "genesis expiresAt must stay untouched");
         assertEq(manager.subscriptionOf(admin).sponsor, address(0));
@@ -160,131 +212,115 @@ contract BuyPackagePassTest is SubscriptionTestBase {
     }
 
     function test_buyPassRevertsOnUnknownTier() public {
-        vm.prank(alice);
+        bytes memory authorization = _kycAuthorizationForManager(alice);
         vm.expectRevert(abi.encodeWithSelector(InvalidTier.selector, uint16(99)));
-        manager.buyPackagePass(99, address(0));
+        vm.prank(alice);
+        manager.buyPackagePass(99, address(0), authorization);
     }
 
     function test_buyPassRevertsOnInactiveTier() public {
         vm.prank(admin);
         manager.removeTier(tier1);
 
-        vm.prank(alice);
+        bytes memory authorization = _kycAuthorizationForManager(alice);
         vm.expectRevert(abi.encodeWithSelector(TierInactive.selector, tier1));
-        manager.buyPackagePass(tier1, address(0));
+        vm.prank(alice);
+        manager.buyPackagePass(tier1, address(0), authorization);
     }
 
     function test_buyPassRevertsIfPassAlreadyExists() public {
-        vm.prank(alice);
-        manager.buyPackagePass(tier1, address(0));
+        _buyPackagePass(alice, tier1, address(0));
 
-        vm.prank(alice);
+        bytes memory authorization = _kycAuthorizationForManager(alice);
         vm.expectRevert(abi.encodeWithSelector(PassAlreadyExists.selector, alice));
-        manager.buyPackagePass(tier2, address(0));
+        vm.prank(alice);
+        manager.buyPackagePass(tier2, address(0), authorization);
     }
 
     function test_buyPassRevertsWhenPaused() public {
         vm.prank(admin);
         manager.pause();
 
-        vm.prank(alice);
+        bytes memory authorization = _kycAuthorizationForManager(alice);
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
-        manager.buyPackagePass(tier1, address(0));
+        vm.prank(alice);
+        manager.buyPackagePass(tier1, address(0), authorization);
     }
 
     // ========================================================================
-    // partner-arg semantics (decoupled sub-sponsor vs. referral chain)
+    // partner-arg semantics for first-time sponsor binding
     // ========================================================================
 
-    /// @dev Partner with available seats: resolver consumes a seat, sub.sponsor = partner,
-    ///      `_referrers[buyer] = partner`, EarnCore mirror updated.
-    function test_buyPassFirstTimeWithPartnerSeats_bindsSponsorAndReferrer() public {
+    /// @dev Partner with available seats: resolver consumes a seat, sub.sponsor = partner.
+    function test_buyPassFirstTimeWithPartnerSeats_bindsSponsor() public {
         _bootstrapPartnerPass(admin, 3);
         uint32 adminSeatsBefore = passNft.seatsOf(admin);
 
-        vm.prank(bob);
-        manager.buyPackagePass(tier1, admin);
+        _buyPackagePass(bob, tier1, admin);
 
         SubscriptionManager.Subscription memory sub = manager.subscriptionOf(bob);
         assertEq(sub.sponsor, admin, "sub sponsor = admin (seat consumed)");
-        assertEq(manager.referrerOf(bob), admin, "referrer = admin");
 
         assertEq(passNft.seatsOf(admin), adminSeatsBefore - 1, "admin seat consumed");
-
-        assertEq(earnCoreStub.userSponsor(bob), admin);
-        assertEq(earnCoreStub.setSponsorCalls(), 1);
     }
 
-    /// @dev Partner without seats: sub.sponsor falls back to 0x0, but `_referrers[buyer] = partner`
-    ///      is still recorded — future pass / upgrade events by buyer still credit L1/L2 referral
-    ///      bonuses to that partner chain.
-    function test_buyPassFirstTimeWithPartnerNoSeats_nullSponsorButReferrerRecorded() public {
+    /// @dev Partner without seats: sub.sponsor falls back to 0x0.
+    function test_buyPassFirstTimeWithPartnerNoSeats_nullSponsor() public {
         // admin has genesis sub but NO pass -> zero seats for sponsorship resolution.
         assertEq(passNft.tierOf(admin), 0);
 
-        vm.prank(bob);
-        manager.buyPackagePass(tier1, admin);
+        _buyPackagePass(bob, tier1, admin);
 
         SubscriptionManager.Subscription memory sub = manager.subscriptionOf(bob);
         assertEq(sub.sponsor, address(0), "null-fallback on sub sponsor");
-        assertEq(manager.referrerOf(bob), admin, "referrer still recorded");
-
-        // EarnCore still mirrored with address(0) to keep sub-sponsor state consistent.
-        assertEq(earnCoreStub.userSponsor(bob), address(0));
-        assertEq(earnCoreStub.setSponsorCalls(), 1);
     }
 
-    /// @dev partner == 0x0 (no referral link at all): both sponsor and referrer stay empty,
-    ///      no EarnCore mirror call is made.
-    function test_buyPassFirstTimeWithZeroPartner_noReferrerNoSponsorCall() public {
-        vm.prank(bob);
-        manager.buyPackagePass(tier1, address(0));
+    /// @dev partner == 0x0: sponsor stays empty.
+    function test_buyPassFirstTimeWithZeroPartner_noSponsor() public {
+        _buyPackagePass(bob, tier1, address(0));
 
         assertEq(manager.subscriptionOf(bob).sponsor, address(0));
-        assertEq(manager.referrerOf(bob), address(0));
-        assertEq(earnCoreStub.setSponsorCalls(), 0, "no setSponsor on pass-first w/o partner");
     }
 
     function test_buyPassRevertsWhenPartnerIsSelf() public {
-        vm.prank(bob);
+        bytes memory authorization = _kycAuthorizationForManager(bob);
         vm.expectRevert(SelfSponsorNotAllowed.selector);
-        manager.buyPackagePass(tier1, bob);
+        vm.prank(bob);
+        manager.buyPackagePass(tier1, bob, authorization);
     }
 
     function test_buyPassRevertsWhenPartnerHasNoSubscription() public {
         // `carol` is a fresh wallet — no subscription.
         address carol = makeAddr("carol");
-        vm.prank(bob);
+        bytes memory authorization = _kycAuthorizationForManager(bob);
         vm.expectRevert(abi.encodeWithSelector(SponsorNotSubscribed.selector, carol));
-        manager.buyPackagePass(tier1, carol);
+        vm.prank(bob);
+        manager.buyPackagePass(tier1, carol, authorization);
     }
 
-    /// @dev Existing subscriber: `partner` must be 0x0 or equal to the stored `_referrers[user]`.
-    function test_buyPassRevertsOnReferrerMismatchForExistingSubscriber() public {
+    /// @dev Existing subscriber: pass purchase preserves the original sponsor and does not
+    ///      re-run the sponsor resolver, even if a non-zero partner is supplied.
+    function test_buyPassWithPartnerForExistingSubscriberPreservesSponsor() public {
         _bootstrapPartnerPass(admin, 5);
-        // alice subscribes via admin → _referrers[alice] = admin.
         vm.prank(alice);
         manager.buySubscription(admin);
 
         address eve = makeAddr("eve");
 
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ReferrerMismatch.selector, alice, admin, eve));
-        manager.buyPackagePass(tier1, eve);
+        _buyPackagePass(alice, tier1, eve);
+
+        assertEq(manager.subscriptionOf(alice).sponsor, admin, "sponsor unchanged");
     }
 
-    /// @dev Existing subscriber can re-pass the same referrer without revert (idempotent UI call).
-    function test_buyPassAcceptsMatchingReferrerForExistingSubscriber() public {
+    /// @dev Resolver is NOT re-run for existing subscribers — no extra seat consumed beyond the
+    ///      one burned in buySubscription.
+    function test_buyPassDoesNotConsumeExtraSeatForExistingSubscriber() public {
         _bootstrapPartnerPass(admin, 5);
         vm.prank(alice);
         manager.buySubscription(admin);
 
-        vm.prank(alice);
-        manager.buyPackagePass(tier1, admin);
+        _buyPackagePass(alice, tier1, admin);
 
-        assertEq(manager.referrerOf(alice), admin, "referrer unchanged");
-        // Resolver is NOT re-run for existing subscribers — no extra seat consumed beyond the one
-        // burned in buySubscription.
         assertEq(passNft.seatsOf(admin), 4);
     }
 }

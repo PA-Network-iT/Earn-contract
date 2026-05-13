@@ -7,41 +7,35 @@ import {IEarnCoreSpec} from "test/shared/interfaces/EarnSpecInterfaces.sol";
 import {EarnCore} from "src/EarnCore.sol";
 import {EarnShareToken} from "src/EarnShareToken.sol";
 
-/// @notice Unit tests that pin expected events for user, admin, treasury, and sponsor flows.
+/// @notice Unit tests that pin expected events for user, admin, and treasury flows.
 contract EventEmissionTest is EarnTestBase {
     event Deposited(
-        address indexed caller,
-        address indexed receiver,
-        uint256 indexed lotId,
-        uint256 assets,
-        uint256 shares,
-        address sponsor
+        address indexed caller, address indexed receiver, uint256 indexed lotId, uint256 assets, uint256 shares
     );
     event WithdrawalRequested(
         address indexed owner,
-        uint256 indexed lotId,
-        uint256 requestId,
-        uint256 shareAmount,
-        uint256 assetAmountSnapshot
+        uint256 indexed requestId,
+        uint256[] lotIds,
+        uint256[] shareAmounts,
+        uint256 assetAmountSnapshot,
+        uint256 feeAmountSnapshot
     );
-    event WithdrawalExecuted(address indexed owner, uint256 indexed lotId, uint256 requestId, uint256 assetsPaid);
+    event WithdrawalExecuted(
+        address indexed owner, uint256 indexed requestId, uint256[] lotIds, uint256 assetsPaid, uint256 feeAmount
+    );
     event AprUpdateScheduled(uint256 newAprBps, uint256 effectiveAt);
     event TreasuryRatioUpdated(uint256 newRatioBps);
-    event MaxSponsorRateUpdated(uint256 newMaxSponsorRateBps);
-    event SponsorAssigned(address indexed user, address indexed sponsor);
+    event EarlyWithdrawalFeeUpdated(uint256 newFeeBps);
     event BlacklistUpdated(address indexed account, bool isBlacklisted);
-    event SponsorBudgetFunded(
-        address indexed caller, address indexed sponsor, uint256 requestedAmount, uint256 allocatedAmount
-    );
-    event SponsorRewardClaimed(address indexed sponsor, uint256 amount);
     event ShareTokenSet(address indexed shareToken);
-    event WithdrawalCancelled(address indexed owner, uint256 indexed lotId, uint256 requestId);
+    event WithdrawalCancelled(address indexed owner, uint256 indexed requestId, uint256[] lotIds);
     event TreasuryTransferred(address indexed caller, address indexed recipient, uint256 amount);
 
     function test_setShareTokenEmitsEvent() public {
         EarnCore coreImpl = new EarnCore();
-        ERC1967Proxy coreProxy =
-            new ERC1967Proxy(address(coreImpl), abi.encodeCall(EarnCore.initialize, (admin, asset, treasury, block.timestamp, 0)));
+        ERC1967Proxy coreProxy = new ERC1967Proxy(
+            address(coreImpl), abi.encodeCall(EarnCore.initialize, (admin, asset, treasury, block.timestamp, 0))
+        );
         EarnShareToken tokenImpl = new EarnShareToken();
         ERC1967Proxy tokenProxy = new ERC1967Proxy(
             address(tokenImpl), abi.encodeCall(EarnShareToken.initialize, ("EARN LP", "eLP", address(coreProxy)))
@@ -58,10 +52,12 @@ contract EventEmissionTest is EarnTestBase {
         uint256 lotId = core.deposit(1_000e6, alice);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, 500e6);
+        core.requestWithdrawal(_singleWithdrawal(lotId, 500e6));
 
+        uint256[] memory lotIds = new uint256[](1);
+        lotIds[0] = lotId;
         vm.expectEmit(true, true, false, true);
-        emit WithdrawalCancelled(alice, lotId, 1);
+        emit WithdrawalCancelled(alice, 1, lotIds);
         vm.prank(alice);
         core.cancelWithdrawal();
     }
@@ -82,7 +78,7 @@ contract EventEmissionTest is EarnTestBase {
     function test_depositEmitsEvent() public {
         uint256 expectedShares = (1_000e6 * 1e27) / core.currentIndex();
         vm.expectEmit(true, true, true, true);
-        emit Deposited(alice, alice, 1, 1_000e6, expectedShares, address(0));
+        emit Deposited(alice, alice, 1, 1_000e6, expectedShares);
 
         vm.prank(alice);
         core.deposit(1_000e6, alice);
@@ -100,14 +96,9 @@ contract EventEmissionTest is EarnTestBase {
         core.setTreasuryRatio(5_000);
 
         vm.expectEmit(false, false, false, true);
-        emit MaxSponsorRateUpdated(1_500);
+        emit EarlyWithdrawalFeeUpdated(1_000);
         vm.prank(admin);
-        core.setMaxSponsorRate(1_500);
-
-        vm.expectEmit(true, true, false, true);
-        emit SponsorAssigned(alice, sponsor);
-        vm.prank(admin);
-        core.setSponsor(alice, sponsor);
+        core.setEarlyWithdrawalFeeBps(1_000);
 
         vm.expectEmit(true, false, false, true);
         emit BlacklistUpdated(alice, true);
@@ -115,12 +106,9 @@ contract EventEmissionTest is EarnTestBase {
         core.setBlacklist(alice, true);
     }
 
-    function test_withdrawalAndSponsorFlowsEmitEvents() public {
-        vm.startPrank(admin);
-        core.setSponsor(alice, sponsor);
-        core.setSponsorRate(sponsor, 1_500);
+    function test_withdrawalFlowEmitsEvents() public {
+        vm.prank(admin);
         core.setApr(APR_20_PERCENT_BPS);
-        vm.stopPrank();
 
         skip(24 hours);
 
@@ -129,29 +117,44 @@ contract EventEmissionTest is EarnTestBase {
 
         skip(180 days);
         uint256 snapshot = _expectedAssetsForShares(500e6, core.currentIndex());
+        uint256[] memory lotIds = new uint256[](1);
+        lotIds[0] = lotId;
+        uint256[] memory shareAmounts = new uint256[](1);
+        shareAmounts[0] = 500e6;
 
         vm.expectEmit(true, true, false, true);
-        emit WithdrawalRequested(alice, 1, 1, 500e6, snapshot);
+        emit WithdrawalRequested(alice, 1, lotIds, shareAmounts, snapshot, 0);
         vm.prank(alice);
-        core.requestWithdrawal(lotId, 500e6);
-
-        uint256 expectedAccrued = _expectedSponsorReward(1_000e6, 1_500, 180 days);
-
-        vm.expectEmit(true, true, false, true);
-        emit SponsorBudgetFunded(admin, sponsor, expectedAccrued, expectedAccrued);
-        vm.prank(admin);
-        core.fundSponsorBudget(sponsor, expectedAccrued);
+        core.requestWithdrawal(_singleWithdrawal(lotId, 500e6));
 
         skip(24 hours);
 
         vm.expectEmit(true, true, false, true);
-        emit WithdrawalExecuted(alice, 1, 1, snapshot);
+        emit WithdrawalExecuted(alice, 1, lotIds, snapshot, 0);
         vm.prank(alice);
         core.executeWithdrawal();
+    }
 
-        vm.expectEmit(true, false, false, true);
-        emit SponsorRewardClaimed(sponsor, 1e6);
-        vm.prank(sponsor);
-        core.claimSponsorReward(1e6);
+    function test_withdrawalExecutedEmitsEarlyWithdrawalFee() public {
+        vm.prank(admin);
+        core.setTreasuryRatio(0);
+        vm.prank(admin);
+        core.setEarlyWithdrawalFeeBps(1_000);
+
+        vm.prank(alice);
+        uint256 lotId = core.deposit(1_000e6, alice);
+
+        uint256[] memory lotIds = new uint256[](1);
+        lotIds[0] = lotId;
+
+        vm.prank(alice);
+        core.requestWithdrawal(_singleWithdrawal(lotId, 5_000e6));
+
+        skip(24 hours);
+
+        vm.expectEmit(true, true, false, true);
+        emit WithdrawalExecuted(alice, 1, lotIds, 450e6, 50e6);
+        vm.prank(alice);
+        core.executeWithdrawal();
     }
 }

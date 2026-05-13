@@ -8,7 +8,6 @@ import {SubscriptionManager} from "src/subscription/SubscriptionManager.sol";
 contract SeatConsumptionTest is SubscriptionTestBase {
     uint256 internal constant TIER_PRICE = 1_000e6;
     uint32 internal constant TIER_SEATS = 5;
-    uint256 internal constant TIER_RATE_BPS = 500; // 5%
 
     event SponsorResolved(
         address indexed user,
@@ -22,12 +21,11 @@ contract SeatConsumptionTest is SubscriptionTestBase {
         super.setUp();
 
         _grantGenesisSubscription(admin);
-        _addTier(TIER_PRICE, TIER_SEATS, TIER_RATE_BPS);
+        _addTier(TIER_PRICE, TIER_SEATS);
 
         // Admin is the bootstrap partner: buys tier-1 so their pass carries TIER_SEATS seats.
         // Genesis subscription has no sponsor; buyPackagePass requires only an active sub.
-        vm.prank(admin);
-        manager.buyPackagePass(1, address(0));
+        _buyPackagePass(admin, 1, address(0));
     }
 
     function test_firstSubscriptionConsumesOneSeatFromPartner() public {
@@ -49,7 +47,6 @@ contract SeatConsumptionTest is SubscriptionTestBase {
 
         SubscriptionManager.Subscription memory sub = manager.subscriptionOf(alice);
         assertEq(sub.sponsor, admin, "effective sponsor is the partner");
-        assertEq(earnCoreStub.userSponsor(alice), admin);
     }
 
     function test_multipleSubscribersDecrementSequentially() public {

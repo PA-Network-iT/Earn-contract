@@ -37,7 +37,7 @@ contract SolvencyAccountingTest is EarnTestBase {
         uint256 expectedSnapshot = _expectedAssetsForShares(halfShares, core.currentIndex());
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, halfShares);
+        core.requestWithdrawal(_singleWithdrawal(lotId, halfShares));
 
         uint256 expectedRemainingYield = _expectedAssetsForShares(halfShares, core.currentIndex()) - 500e6;
 
@@ -52,7 +52,7 @@ contract SolvencyAccountingTest is EarnTestBase {
         uint256 halfShares = shareToken.balanceOf(alice) / 2;
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, halfShares);
+        core.requestWithdrawal(_singleWithdrawal(lotId, halfShares));
 
         uint256 frozenLiability = core.totals().frozenWithdrawalLiability;
         assertGt(frozenLiability, 0);
@@ -68,10 +68,8 @@ contract SolvencyAccountingTest is EarnTestBase {
 
         skip(24 hours);
 
-        vm.prank(alice);
-        core.deposit(1_000e6, alice);
-        vm.prank(bob);
-        core.deposit(2_000e6, bob);
+        _deposit(alice, 1_000e6, alice);
+        _deposit(bob, 2_000e6, bob);
 
         uint256 elapsed = 180 days;
         skip(elapsed);
@@ -116,7 +114,7 @@ contract SolvencyAccountingTest is EarnTestBase {
         skip(30 days);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, shares);
+        core.requestWithdrawal(_singleWithdrawal(lotId, shares));
 
         assertEq(core.totals().userYieldLiability, 0);
 
@@ -142,7 +140,7 @@ contract SolvencyAccountingTest is EarnTestBase {
         skip(30 days);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, shares);
+        core.requestWithdrawal(_singleWithdrawal(lotId, shares));
 
         vm.prank(admin);
         core.setBlacklist(alice, true);
@@ -177,7 +175,7 @@ contract SolvencyAccountingTest is EarnTestBase {
         skip(180 days);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, halfShares);
+        core.requestWithdrawal(_singleWithdrawal(lotId, halfShares));
 
         uint256 expectedRemainingYield = _expectedProfit(500e6, APR_20_PERCENT_BPS, 180 days);
         assertApproxEqAbs(core.totals().userYieldLiability, expectedRemainingYield, 1);

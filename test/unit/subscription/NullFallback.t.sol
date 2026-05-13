@@ -7,10 +7,9 @@ import {InvalidSponsor} from "test/shared/subscription/SubscriptionErrors.sol";
 
 /// @notice Unit tests for the sponsor resolver's null-fallback path.
 /// @dev When a partner has no available seats the effective sponsor resolves to `address(0)`,
-///      the subscription still proceeds, and no sponsor rewards accrue to anyone.
+///      and the subscription still proceeds.
 contract NullFallbackTest is SubscriptionTestBase {
     uint256 internal constant TIER_PRICE = 1_000e6;
-    uint256 internal constant TIER_RATE_BPS = 500;
 
     event SponsorResolved(
         address indexed user,
@@ -22,7 +21,7 @@ contract NullFallbackTest is SubscriptionTestBase {
     function setUp() public override {
         super.setUp();
         _grantGenesisSubscription(admin);
-        _addTier(TIER_PRICE, 1, TIER_RATE_BPS); // tier-1: 1 seat
+        _addTier(TIER_PRICE, 1); // tier-1: 1 seat
     }
 
     function test_partnerWithoutPassResolvesToNull() public {
@@ -35,12 +34,10 @@ contract NullFallbackTest is SubscriptionTestBase {
 
         SubscriptionManager.Subscription memory sub = manager.subscriptionOf(alice);
         assertEq(sub.sponsor, address(0));
-        assertEq(earnCoreStub.userSponsor(alice), address(0));
     }
 
     function test_partnerWithZeroSeatsResolvesToNull() public {
-        vm.prank(admin);
-        manager.buyPackagePass(1, address(0)); // admin now has 1 seat
+        _buyPackagePass(admin, 1, address(0)); // admin now has 1 seat
 
         // alice consumes the single seat.
         vm.prank(alice);
@@ -55,7 +52,6 @@ contract NullFallbackTest is SubscriptionTestBase {
         manager.buySubscription(admin);
 
         assertEq(manager.subscriptionOf(bob).sponsor, address(0));
-        assertEq(earnCoreStub.userSponsor(bob), address(0));
     }
 
     function test_zeroPartnerReverts() public {
@@ -71,8 +67,7 @@ contract NullFallbackTest is SubscriptionTestBase {
     }
 
     function test_quoteSponsorReturnsPartnerWhenSeatsAvailable() public {
-        vm.prank(admin);
-        manager.buyPackagePass(1, address(0));
+        _buyPackagePass(admin, 1, address(0));
 
         (address effective, uint32 remaining) = manager.quoteSponsor(admin);
         assertEq(effective, admin);

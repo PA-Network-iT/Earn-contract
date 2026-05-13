@@ -28,7 +28,7 @@ abstract contract SubscriptionManagerStorage {
     struct Tier {
         uint256 price;
         uint32 seats;
-        uint256 sponsorRateBps;
+        uint256 deprecatedRateBpsSlot;
         bool active;
         string metadataURI;
     }
@@ -54,64 +54,23 @@ abstract contract SubscriptionManagerStorage {
     // collected-but-not-yet-swept revenue.
     uint256 internal _totalRevenueSwept;
 
-    // --- subscription sales bonus (cumulative tier-based referral rewards) ---
-    // See: docs/Subscription Sales Bonus.md. Each first-time successful subscription purchase
-    // routed through `buySubscription(partner)` with a non-zero effective sponsor records one
-    // lifetime qualified referral against that sponsor and evaluates active bonus tiers. Any tier
-    // whose `minReferrals` threshold is satisfied and has not yet been awarded to the sponsor
-    // triggers an immediate USDC payout from this contract's balance.
-    struct BonusTier {
-        uint32 minReferrals;     // qualified-referral threshold; strictly positive
-        uint256 rewardAmount;    // cash reward in `_paymentToken` units; strictly positive
-        bool active;             // only active tiers participate in evaluation
-        uint16 sortOrder;        // informational display/order hint; evaluation is by tierId
-    }
+    uint16 internal _deprecatedNextBonusTierId;
+    mapping(uint16 id => uint256 value) internal _deprecatedSubscriptionSalesSlot1;
+    mapping(address beneficiary => uint32 count) internal _deprecatedSubscriptionSalesSlot2;
+    mapping(address beneficiary => mapping(uint16 id => bool awarded)) internal _deprecatedSubscriptionSalesSlot3;
+    mapping(address beneficiary => uint256 total) internal _deprecatedSubscriptionSalesSlot4;
+    uint256 internal _deprecatedSubscriptionSalesSlot5;
 
-    uint16 internal _nextBonusTierId;
-    mapping(uint16 bonusTierId => BonusTier bonusTier) internal _bonusTiers;
+    mapping(uint16 tierId => uint256 value) internal _deprecatedReferralBonusSlot0;
+    mapping(address beneficiary => uint256 total) internal _deprecatedReferralBonusSlot1;
+    mapping(address beneficiary => uint256 total) internal _deprecatedReferralBonusSlot2;
+    uint256 internal _deprecatedReferralBonusSlot3;
+    mapping(address user => address referrer) internal _deprecatedReferralBonusSlot4;
 
-    // Lifetime count of qualified referrals credited to a beneficiary. Never decreases.
-    mapping(address beneficiary => uint32 count) internal _qualifiedReferralCount;
-
-    // `_bonusAwarded[beneficiary][bonusTierId]` — true once the tier has been awarded to that
-    // beneficiary. Enforces "each tier awarded only once per beneficiary" (spec §5.2 / §12).
-    mapping(address beneficiary => mapping(uint16 bonusTierId => bool awarded)) internal _bonusAwarded;
-
-    // Per-beneficiary cumulative bonus payout total (for reporting / reconciliation).
-    mapping(address beneficiary => uint256 total) internal _totalBonusAwardedTo;
-
-    // Global cumulative bonus payout total across all beneficiaries.
-    uint256 internal _totalBonusPaid;
-
-    // --- referral bonus (Pass Sales) — docs/Referral Bonus.md ---
-    // Package-based L1/L2 referral rates keyed by Pass tier. The percentage applied to a bonus
-    // event is looked up on the BENEFICIARY's current Pass tier, not the buyer's (spec §5.2 /
-    // §7 "Package matching rule"). Default-zero entry means no rule configured → inactive, no
-    // payout. Changes take effect on future eligible events only (spec §5.4).
-    struct ReferralBonusConfig {
-        uint16 firstLineBps;    // 1st-line (direct parent) rate in basis points
-        uint16 secondLineBps;   // 2nd-line (grandparent) rate in basis points
-        bool active;            // master switch for this Pass tier's rules
-    }
-    mapping(uint16 tierId => ReferralBonusConfig config) internal _referralBonusConfig;
-
-    // Per-beneficiary cumulative referral-bonus totals split by referral depth (reporting §13).
-    mapping(address beneficiary => uint256 total) internal _referralBonusFirstLinePaid;
-    mapping(address beneficiary => uint256 total) internal _referralBonusSecondLinePaid;
-
-    // Global cumulative referral-bonus payout across all beneficiaries (reporting §13).
-    uint256 internal _totalReferralBonusPaid;
-
-    // --- referral chain (Pass Sales) ---
-    // Per-user requested referrer, captured on the FIRST sponsor-bearing entrypoint
-    // (`buySubscription(partner)` or `buyPackagePass(tierId, partner)` when `partner != 0x0`).
-    // Immutable once set (same write-once semantics as `subscription.sponsor` — see I-2). Drives
-    // referral-bonus chain resolution in `_payReferralBonuses` (L1 = `_referrers[buyer]`,
-    // L2 = `_referrers[L1]`). DECOUPLED from `subscription.sponsor`: the latter may be `0x0` due
-    // to null-fallback (partner had no seats), yet the referrer chain still records the requested
-    // partner so that their future pass / upgrade events still credit L1 / L2 referral bonuses.
-    mapping(address user => address referrer) internal _referrers;
+    // --- KYC authorization ---
+    address internal _kycSigner;
+    mapping(address user => uint256 nonce) internal _kycNonces;
 
     // --- reserved ---
-    uint256[34] private __gap;
+    uint256[32] private __gap;
 }

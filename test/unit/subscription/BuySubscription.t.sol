@@ -82,9 +82,6 @@ contract BuySubscriptionTest is SubscriptionTestBase {
         assertEq(subNft.balanceOf(alice), 1);
         assertEq(subNft.ownerOf(subNft.tokenIdOf(alice)), alice);
 
-        assertEq(earnCoreStub.userSponsor(alice), admin);
-        assertEq(earnCoreStub.setSponsorCalls(), 1);
-
         // Direct-to-sponsor payouts bypass the contract balance, so `totalRevenueSwept` is untouched.
         assertEq(manager.totalRevenueSwept() - sweptBefore, 0);
     }

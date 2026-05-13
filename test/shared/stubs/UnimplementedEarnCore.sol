@@ -6,7 +6,7 @@ import {
     IEarnCoreSpec,
     LotView,
     WithdrawalRequestView,
-    SponsorAccountView,
+    WithdrawalLotInputView,
     ProductTotalsView
 } from "test/shared/interfaces/EarnSpecInterfaces.sol";
 import {EarnShareToken} from "src/EarnShareToken.sol";
@@ -28,8 +28,6 @@ contract UnimplementedEarnCore is IEarnCoreSpec {
     ProductTotalsView private _totals;
     mapping(uint256 lotId => LotView lotView) private _lots;
     mapping(address owner => uint256[] lotIds) private _userLotIds;
-    mapping(address sponsor => uint256[] lotIds) private _sponsorLotIds;
-    mapping(address user => address sponsor) private _userSponsors;
 
     constructor() {
         EarnShareToken implementation = new EarnShareToken();
@@ -85,10 +83,8 @@ contract UnimplementedEarnCore is IEarnCoreSpec {
 
     function deposit(uint256 assets, address receiver) external returns (uint256) {
         _nextLotId += 1;
-        address sponsor = _userSponsors[receiver];
 
         uint256 treasuryShare = (assets * _treasuryRatioBps) / 10_000;
-        uint256 bufferShare = assets - treasuryShare;
 
         _totals.userPrincipalLiability += assets;
         _totals.treasuryReportedAssets += treasuryShare;
@@ -101,32 +97,23 @@ contract UnimplementedEarnCore is IEarnCoreSpec {
             entryIndexRay: ONE_RAY,
             lastIndexRay: ONE_RAY,
             frozenIndexRay: 0,
-            lastSponsorAccumulatorRay: 0,
             openedAt: uint64(block.timestamp),
             frozenAt: 0,
             isFrozen: false,
-            isClosed: false,
-            sponsor: sponsor
+            isClosed: false
         });
 
         _userLotIds[receiver].push(_nextLotId);
-        if (sponsor != address(0)) {
-            _sponsorLotIds[sponsor].push(_nextLotId);
-        }
 
         EarnShareToken(_shareToken).mint(receiver, assets);
         return _nextLotId;
     }
 
-    function requestWithdrawal(uint256, uint256) external pure {}
+    function requestWithdrawal(WithdrawalLotInputView[] calldata) external pure {}
 
     function cancelWithdrawal() external pure {}
 
     function executeWithdrawal() external pure returns (uint256) {
-        return 0;
-    }
-
-    function claimSponsorReward(uint256) external pure returns (uint256) {
         return 0;
     }
 
@@ -138,21 +125,17 @@ contract UnimplementedEarnCore is IEarnCoreSpec {
         _treasuryRatioBps = newRatioBps;
     }
 
-    function setSponsor(address user, address sponsor) external {
-        _userSponsors[user] = sponsor;
-    }
-
-    function setMaxSponsorRate(uint256) external pure {}
-
-    function setSponsorRate(address, uint256) external pure {}
+    function setEarlyWithdrawalFeeBps(uint256) external pure {}
 
     function setBlacklist(address, bool) external pure {}
+
+    function forceWithdrawBlacklisted(address, uint256) external pure returns (uint256) {
+        return 0;
+    }
 
     function setWithdrawalPause(bool, bool) external pure {}
 
     function reportTreasuryAssets(uint256) external pure {}
-
-    function fundSponsorBudget(address, uint256) external pure {}
 
     function transferToTreasury(address, uint256) external pure {}
 
@@ -176,20 +159,16 @@ contract UnimplementedEarnCore is IEarnCoreSpec {
         return ONE_RAY;
     }
 
-    function maxSponsorRateBps() external pure returns (uint256) {
-        return 2_000;
-    }
-
     function minDeposit() external pure returns (uint256) {
         return 1_000_000;
     }
 
-    function ownerLotCount(address owner) external view returns (uint256) {
-        return _userLotIds[owner].length;
+    function earlyWithdrawalFeeBps() external pure returns (uint256) {
+        return 0;
     }
 
-    function sponsorLotCount(address sponsor) external view returns (uint256) {
-        return _sponsorLotIds[sponsor].length;
+    function ownerLotCount(address owner) external view returns (uint256) {
+        return _userLotIds[owner].length;
     }
 
     function lot(uint256 lotId) external view returns (LotView memory lotView) {
@@ -200,20 +179,8 @@ contract UnimplementedEarnCore is IEarnCoreSpec {
         return _sliceLots(_userLotIds[owner], offset, limit);
     }
 
-    function lotsBySponsor(address sponsor, uint256 offset, uint256 limit)
-        external
-        view
-        returns (LotView[] memory lots)
-    {
-        return _sliceLots(_sponsorLotIds[sponsor], offset, limit);
-    }
-
     function withdrawalRequest(address) external pure returns (WithdrawalRequestView memory requestView) {
         return requestView;
-    }
-
-    function sponsorAccount(address) external pure returns (SponsorAccountView memory sponsorView) {
-        return sponsorView;
     }
 
     function totals() external view returns (ProductTotalsView memory totalsView) {

@@ -23,15 +23,11 @@ contract EarnCoreGateTest is EarnTestBase {
         super.setUp();
 
         SubscriptionNFT subImpl = new SubscriptionNFT();
-        ERC1967Proxy subProxy = new ERC1967Proxy(
-            address(subImpl), abi.encodeCall(SubscriptionNFT.initialize, (admin))
-        );
+        ERC1967Proxy subProxy = new ERC1967Proxy(address(subImpl), abi.encodeCall(SubscriptionNFT.initialize, (admin)));
         subNft = SubscriptionNFT(address(subProxy));
 
         PackagePassNFT passImpl = new PackagePassNFT();
-        ERC1967Proxy passProxy = new ERC1967Proxy(
-            address(passImpl), abi.encodeCall(PackagePassNFT.initialize, (admin))
-        );
+        ERC1967Proxy passProxy = new ERC1967Proxy(address(passImpl), abi.encodeCall(PackagePassNFT.initialize, (admin)));
         passNft = PackagePassNFT(address(passProxy));
 
         SubscriptionManager mImpl = new SubscriptionManager();
@@ -54,11 +50,6 @@ contract EarnCoreGateTest is EarnTestBase {
         assetToken.approve(address(subscriptionManager), type(uint256).max);
         vm.prank(bob);
         assetToken.approve(address(subscriptionManager), type(uint256).max);
-
-        // Grant the SM the SUBSCRIPTION_MANAGER_ROLE so it can call setSponsor / setSponsorRate.
-        bytes32 smRole = EarnCore(address(core)).SUBSCRIPTION_MANAGER_ROLE();
-        vm.prank(admin);
-        core.grantRole(smRole, address(subscriptionManager));
     }
 
     function test_gateIsOpenWhenSubscriptionManagerUnset() public {
@@ -71,9 +62,7 @@ contract EarnCoreGateTest is EarnTestBase {
     function test_setSubscriptionManagerRequiresAdmin() public {
         bytes32 role = core.DEFAULT_ADMIN_ROLE();
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role));
         EarnCore(address(core)).setSubscriptionManager(address(subscriptionManager));
     }
 
@@ -132,7 +121,7 @@ contract EarnCoreGateTest is EarnTestBase {
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(SubscriptionRequired.selector, alice));
-        core.requestWithdrawal(lotId, 10_000e6);
+        core.requestWithdrawal(_singleWithdrawal(lotId, 10_000e6));
     }
 
     function test_gateAllowsSubscribedUserFullLifecycle() public {
@@ -148,18 +137,7 @@ contract EarnCoreGateTest is EarnTestBase {
         uint256 lotId = core.deposit(1_000e6, alice);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, 10_000e6);
-    }
-
-    function test_subscriptionManagerCanSetSponsorViaRoleExtension() public {
-        vm.prank(admin);
-        EarnCore(address(core)).setSubscriptionManager(address(subscriptionManager));
-        vm.prank(admin);
-        subscriptionManager.adminMintGenesisSubscription(admin);
-
-        // Calling buySubscription internally exercises setSponsor via SUBSCRIPTION_MANAGER_ROLE.
-        vm.prank(alice);
-        subscriptionManager.buySubscription(admin);
+        core.requestWithdrawal(_singleWithdrawal(lotId, 10_000e6));
     }
 
     function test_subscriptionManagerAddressExposedByGetter() public {

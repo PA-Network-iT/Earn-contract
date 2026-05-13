@@ -45,14 +45,20 @@ contract AccessControlTest is EarnTestBase {
         EarnCore coreImplementation = new EarnCore();
 
         vm.expectRevert(abi.encodeWithSelector(InvalidAdmin.selector, address(0)));
-        new ERC1967Proxy(address(coreImplementation), abi.encodeCall(EarnCore.initialize, (address(0), asset, treasury, block.timestamp, 0)));
+        new ERC1967Proxy(
+            address(coreImplementation),
+            abi.encodeCall(EarnCore.initialize, (address(0), asset, treasury, block.timestamp, 0))
+        );
     }
 
     function test_initializeRejectsZeroAsset() public {
         EarnCore coreImplementation = new EarnCore();
 
         vm.expectRevert(abi.encodeWithSelector(InvalidAsset.selector, address(0)));
-        new ERC1967Proxy(address(coreImplementation), abi.encodeCall(EarnCore.initialize, (admin, address(0), treasury, block.timestamp, 0)));
+        new ERC1967Proxy(
+            address(coreImplementation),
+            abi.encodeCall(EarnCore.initialize, (admin, address(0), treasury, block.timestamp, 0))
+        );
     }
 
     function test_scopedRolesGateAdminFunctions() public {
@@ -71,6 +77,14 @@ contract AccessControlTest is EarnTestBase {
         );
         vm.prank(alice);
         core.setMinDeposit(100_000);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, core.PARAMETER_MANAGER_ROLE()
+            )
+        );
+        vm.prank(alice);
+        core.setEarlyWithdrawalFeeBps(1_000);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -93,14 +107,6 @@ contract AccessControlTest is EarnTestBase {
         );
         vm.prank(alice);
         core.reportTreasuryAssets(1_000e6);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, core.TREASURY_MANAGER_ROLE()
-            )
-        );
-        vm.prank(alice);
-        core.fundSponsorBudget(sponsor, 1_000e6);
     }
 
     function test_defaultAdminCanDelegateScopedRoles() public {
@@ -124,6 +130,10 @@ contract AccessControlTest is EarnTestBase {
         vm.prank(parameterManager);
         core.setMinDeposit(100_000);
 
+        vm.prank(parameterManager);
+        core.setEarlyWithdrawalFeeBps(1_000);
+        assertEq(core.earlyWithdrawalFeeBps(), 1_000);
+
         vm.prank(complianceOfficer);
         core.setBlacklist(alice, true);
         assertTrue(core.isBlacklisted(alice));
@@ -135,14 +145,6 @@ contract AccessControlTest is EarnTestBase {
         vm.prank(reporter);
         core.reportTreasuryAssets(123e6);
         assertEq(core.totals().treasuryReportedAssets, 123e6);
-
-        vm.prank(parameterManager);
-        core.setSponsor(alice, sponsor);
-        vm.prank(parameterManager);
-        core.setSponsorRate(sponsor, 1_000);
-
-        vm.prank(treasuryManager);
-        core.fundSponsorBudget(sponsor, 1e6);
 
         vm.prank(upgrader);
         core.upgradeToAndCall(address(newImplementation), "");
@@ -209,8 +211,10 @@ contract AccessControlTest is EarnTestBase {
 
     function test_shareTokenMustBeOwnedByCore() public {
         EarnCore coreImplementation = new EarnCore();
-        ERC1967Proxy coreProxy =
-            new ERC1967Proxy(address(coreImplementation), abi.encodeCall(EarnCore.initialize, (admin, asset, treasury, block.timestamp, 0)));
+        ERC1967Proxy coreProxy = new ERC1967Proxy(
+            address(coreImplementation),
+            abi.encodeCall(EarnCore.initialize, (admin, asset, treasury, block.timestamp, 0))
+        );
         IEarnCoreSpec freshCore = IEarnCoreSpec(address(coreProxy));
 
         EarnShareToken implementation = new EarnShareToken();

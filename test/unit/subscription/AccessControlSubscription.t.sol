@@ -18,49 +18,48 @@ contract AccessControlSubscriptionTest is SubscriptionTestBase {
     function test_onlyParameterManagerCanSetSubscriptionPrice() public {
         bytes32 role = manager.PARAMETER_MANAGER_ROLE();
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role));
         manager.setSubscriptionPrice(300e6);
     }
 
     function test_onlyParameterManagerCanAddTier() public {
         bytes32 role = manager.PARAMETER_MANAGER_ROLE();
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role)
-        );
-        manager.addTier(100e6, 1, 500, "uri");
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role));
+        manager.addTier(100e6, 1, "uri");
     }
 
     function test_onlyParameterManagerCanRemoveTier() public {
         vm.prank(admin);
-        uint16 id = manager.addTier(100e6, 1, 500, "uri");
+        uint16 id = manager.addTier(100e6, 1, "uri");
 
         bytes32 role = manager.PARAMETER_MANAGER_ROLE();
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role));
         manager.removeTier(id);
     }
 
     function test_onlyPauserCanPause() public {
         bytes32 role = manager.PAUSER_ROLE();
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role));
         manager.pause();
     }
 
     function test_onlyAdminCanAdminMintGenesis() public {
         bytes32 role = manager.DEFAULT_ADMIN_ROLE();
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role));
         manager.adminMintGenesisSubscription(alice);
+    }
+
+    function test_onlyAdminCanGrantPackagePass() public {
+        uint16 tierId = _addTier(100e6, 1);
+
+        bytes32 role = manager.DEFAULT_ADMIN_ROLE();
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role));
+        manager.adminGrantPackagePass(alice, tierId);
     }
 
     function test_adminMintGenesisRejectsZero() public {
@@ -69,21 +68,25 @@ contract AccessControlSubscriptionTest is SubscriptionTestBase {
         manager.adminMintGenesisSubscription(address(0));
     }
 
+    function test_adminGrantPackagePassRejectsZero() public {
+        uint16 tierId = _addTier(100e6, 1);
+
+        vm.prank(admin);
+        vm.expectRevert(ZeroAddress.selector);
+        manager.adminGrantPackagePass(address(0), tierId);
+    }
+
     function test_onlyAdminCanSetSubscriptionNFT() public {
         bytes32 role = manager.DEFAULT_ADMIN_ROLE();
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role));
         manager.setSubscriptionNFT(address(0xBEEF));
     }
 
     function test_onlyAdminCanSetEarnCore() public {
         bytes32 role = manager.DEFAULT_ADMIN_ROLE();
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, alice, role));
         manager.setEarnCore(address(0xBEEF));
     }
 }

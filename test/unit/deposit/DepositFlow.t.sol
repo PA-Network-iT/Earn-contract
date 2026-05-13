@@ -112,11 +112,9 @@ contract DepositFlowTest is EarnTestBase {
     }
 
     function test_lotsByOwnerReturnsOwnedLotsInInsertionOrder() public {
-        vm.prank(alice);
-        uint256 firstLotId = core.deposit(1_000e6, alice);
+        uint256 firstLotId = _deposit(alice, 1_000e6, alice);
 
-        vm.prank(alice);
-        uint256 secondLotId = core.deposit(2_000e6, alice);
+        uint256 secondLotId = _deposit(alice, 2_000e6, alice);
 
         LotView[] memory lots = core.lotsByOwner(alice, 0, 10);
 
@@ -129,14 +127,11 @@ contract DepositFlowTest is EarnTestBase {
     }
 
     function test_lotsByOwnerSupportsPagination() public {
-        vm.prank(alice);
-        core.deposit(1_000e6, alice);
+        _deposit(alice, 1_000e6, alice);
 
-        vm.prank(alice);
-        uint256 secondLotId = core.deposit(2_000e6, alice);
+        uint256 secondLotId = _deposit(alice, 2_000e6, alice);
 
-        vm.prank(alice);
-        uint256 thirdLotId = core.deposit(3_000e6, alice);
+        uint256 thirdLotId = _deposit(alice, 3_000e6, alice);
 
         LotView[] memory lots = core.lotsByOwner(alice, 1, 5);
 
@@ -146,14 +141,11 @@ contract DepositFlowTest is EarnTestBase {
     }
 
     function test_lotsByOwnerClampsWhenLimitExceedsRemainingRange() public {
-        vm.prank(alice);
-        core.deposit(1_000e6, alice);
+        _deposit(alice, 1_000e6, alice);
 
-        vm.prank(alice);
-        uint256 secondLotId = core.deposit(2_000e6, alice);
+        uint256 secondLotId = _deposit(alice, 2_000e6, alice);
 
-        vm.prank(alice);
-        uint256 thirdLotId = core.deposit(3_000e6, alice);
+        uint256 thirdLotId = _deposit(alice, 3_000e6, alice);
 
         LotView[] memory lots = core.lotsByOwner(alice, 1, type(uint256).max);
 

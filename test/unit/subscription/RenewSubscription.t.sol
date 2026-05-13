@@ -13,7 +13,7 @@ import {
 
 /// @notice Unit tests for `SubscriptionManager.renewSubscription()`.
 /// @dev Renewal only bumps `expiresAt`. It must NOT touch `startedAt`, `sponsor`, the soulbound
-///      NFT, partner seats, or the EarnCore sponsor mapping. Early renewal is forbidden: callers
+///      NFT, or partner seats. Early renewal is forbidden: callers
 ///      must wait until their current subscription has fully expired.
 contract RenewSubscriptionTest is SubscriptionTestBase {
     event SubscriptionPurchased(
@@ -48,7 +48,6 @@ contract RenewSubscriptionTest is SubscriptionTestBase {
         manager.buySubscription(admin);
         SubscriptionManager.Subscription memory before_ = manager.subscriptionOf(alice);
 
-        uint256 setSponsorCallsBefore = earnCoreStub.setSponsorCalls();
         uint32 seatsBefore = passNft.seatsOf(admin);
         uint256 treasuryBefore = usdc.balanceOf(treasury);
         uint256 managerBefore = usdc.balanceOf(address(manager));
@@ -76,23 +75,26 @@ contract RenewSubscriptionTest is SubscriptionTestBase {
         assertEq(after_.expiresAt, uint64(block.timestamp) + SUBSCRIPTION_DURATION);
 
         assertEq(passNft.seatsOf(admin), seatsBefore, "renewal must not consume a partner seat");
-        assertEq(earnCoreStub.setSponsorCalls(), setSponsorCallsBefore, "renewal must not re-write EarnCore sponsor");
         // Renewal revenue now accumulates on the contract instead of going straight to treasury.
-        assertEq(usdc.balanceOf(treasury) - treasuryBefore, 0, "treasury must not receive renewal revenue synchronously");
-        assertEq(usdc.balanceOf(address(manager)) - managerBefore, SUBSCRIPTION_PRICE, "renewal revenue must land on the manager");
+        assertEq(
+            usdc.balanceOf(treasury) - treasuryBefore, 0, "treasury must not receive renewal revenue synchronously"
+        );
+        assertEq(
+            usdc.balanceOf(address(manager)) - managerBefore,
+            SUBSCRIPTION_PRICE,
+            "renewal revenue must land on the manager"
+        );
         assertEq(manager.totalRevenueSwept(), 0);
         assertEq(manager.pendingRevenue(), usdc.balanceOf(address(manager)));
         assertEq(subNft.balanceOf(alice), 1, "NFT must not be re-minted");
     }
 
-    function test_renewPreservesNullSponsorAndDoesNotCallEarnCore() public {
+    function test_renewPreservesNullSponsor() public {
         // admin has a genesis sub but no Pass → alice resolves to a null sponsor.
         _grantGenesisSubscription(admin);
         vm.prank(alice);
         manager.buySubscription(admin);
         assertEq(manager.subscriptionOf(alice).sponsor, address(0));
-
-        uint256 setSponsorCallsBefore = earnCoreStub.setSponsorCalls();
 
         skip(uint256(SUBSCRIPTION_DURATION) + 1);
 
@@ -100,8 +102,6 @@ contract RenewSubscriptionTest is SubscriptionTestBase {
         manager.renewSubscription();
 
         assertEq(manager.subscriptionOf(alice).sponsor, address(0));
-        assertEq(earnCoreStub.userSponsor(alice), address(0));
-        assertEq(earnCoreStub.setSponsorCalls(), setSponsorCallsBefore);
     }
 
     function test_renewDoesNotRebindToPartnerEvenIfSeatsBecomeAvailable() public {
@@ -113,18 +113,15 @@ contract RenewSubscriptionTest is SubscriptionTestBase {
 
         skip(uint256(SUBSCRIPTION_DURATION) + 1);
 
-        _addTier(1e6, 5, 500);
-        vm.prank(admin);
-        manager.buyPackagePass(1, address(0));
+        _addTier(1e6, 5);
+        _buyPackagePass(admin, 1, address(0));
         uint32 seatsBefore = passNft.seatsOf(admin);
-        uint256 setSponsorCallsBefore = earnCoreStub.setSponsorCalls();
 
         vm.prank(alice);
         manager.renewSubscription();
 
         assertEq(manager.subscriptionOf(alice).sponsor, address(0), "renewal must not rebind to partner");
         assertEq(passNft.seatsOf(admin), seatsBefore, "renewal must not consume a partner seat");
-        assertEq(earnCoreStub.setSponsorCalls(), setSponsorCallsBefore);
     }
 
     function test_renewRevertsWhenPaused() public {

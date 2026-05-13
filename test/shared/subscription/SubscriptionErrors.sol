@@ -8,7 +8,6 @@ error SubscriptionAlreadyExists(address user);
 error InvalidSponsor(address sponsor);
 error SponsorNotSubscribed(address sponsor);
 error SelfSponsorNotAllowed();
-error ReferrerMismatch(address user, address expected, address provided);
 error InvalidTier(uint16 tierId);
 error TierInactive(uint16 tierId);
 error PassAlreadyExists(address user);
@@ -18,7 +17,6 @@ error DowngradeNotAllowed(uint256 oldPrice, uint256 newPrice);
 error ZeroAddress();
 error InvalidAmount();
 error InvalidPrice();
-error InvalidRateBps(uint256 rateBps);
 error SubscriptionPriceNotSet();
 error EarnCoreNotSet();
 

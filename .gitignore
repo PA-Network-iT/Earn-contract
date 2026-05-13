@@ -21,3 +21,4 @@ lcov.info
 .vscode/
 .idea/
 .states/
+.deploys/

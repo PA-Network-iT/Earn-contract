@@ -18,8 +18,7 @@ contract UpgradePackagePassTest is SubscriptionTestBase {
         uint16 indexed oldTierId,
         uint16 indexed newTierId,
         uint32 newSeats,
-        uint256 deltaPricePaid,
-        uint256 newSponsorRateBps
+        uint256 deltaPricePaid
     );
 
     uint16 internal tier1;
@@ -28,18 +27,15 @@ contract UpgradePackagePassTest is SubscriptionTestBase {
 
     function setUp() public override {
         super.setUp();
-        tier1 = _addTier(200e6, 5, 1_000);
-        tier2 = _addTier(500e6, 15, 1_500);
-        tier3 = _addTier(1_000e6, 25, 2_000);
+        tier1 = _addTier(200e6, 5);
+        tier2 = _addTier(500e6, 15);
+        tier3 = _addTier(1_000e6, 25);
         _grantGenesisSubscription(admin);
 
         vm.prank(alice);
         manager.buySubscription(admin);
 
-        vm.prank(alice);
-        // alice already has sub with admin as referrer (from buySubscription above); pass
-        // partner must match or be 0x0 per `ReferrerMismatch` guard.
-        manager.buyPackagePass(tier1, address(0));
+        _buyPackagePass(alice, tier1, address(0));
     }
 
     function test_upgradeHappyPath() public {
@@ -47,7 +43,7 @@ contract UpgradePackagePassTest is SubscriptionTestBase {
         uint256 aliceBefore = usdc.balanceOf(alice);
 
         vm.expectEmit(true, true, true, true, address(manager));
-        emit PackagePassUpgraded(alice, tier1, tier2, 15, 300e6, 1_500);
+        emit PackagePassUpgraded(alice, tier1, tier2, 15, 300e6);
 
         vm.prank(alice);
         manager.upgradePackagePass(tier2);
@@ -67,9 +63,7 @@ contract UpgradePackagePassTest is SubscriptionTestBase {
         // Token not re-minted.
         assertEq(passNft.balanceOf(alice), 1);
 
-        assertEq(earnCoreStub.sponsorRateBps(alice), 1_500);
-        // alice buyPackagePass tier1 (1) + upgrade to tier2 (2).
-        assertEq(earnCoreStub.setSponsorRateCalls(), 2);
+        assertEq(manager.passOf(alice).tierId, tier2);
     }
 
     function test_upgradeTier1ToTier3AccumulatesSeats() public {

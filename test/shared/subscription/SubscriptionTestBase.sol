@@ -10,18 +10,9 @@ import {PackagePassNFT} from "src/subscription/PackagePassNFT.sol";
 import {SubscriptionManager} from "src/subscription/SubscriptionManager.sol";
 
 /// @notice Minimal stand-in for EarnCore exposing the surface SubscriptionManager integrates with.
-/// @dev Records calls so tests can assert that the manager fires setSponsor / setSponsorRate
-///      and forwards USDC to the treasury wallet.
+/// @dev Exposes the treasury wallet used for subscription revenue routing.
 contract MockEarnCoreStub {
     address internal _treasuryWallet;
-
-    mapping(address user => address sponsor) public userSponsor;
-    mapping(address sponsor => uint256 rateBps) public sponsorRateBps;
-
-    uint256 public setSponsorCalls;
-    uint256 public setSponsorRateCalls;
-
-    bool public revertOnSetSponsor;
 
     constructor(address treasuryWallet_) {
         _treasuryWallet = treasuryWallet_;
@@ -30,21 +21,6 @@ contract MockEarnCoreStub {
     function treasuryWallet() external view returns (address) {
         return _treasuryWallet;
     }
-
-    function setRevertOnSetSponsor(bool flag) external {
-        revertOnSetSponsor = flag;
-    }
-
-    function setSponsor(address user, address sponsor) external {
-        require(!revertOnSetSponsor, "stub: sponsor-reverted");
-        userSponsor[user] = sponsor;
-        setSponsorCalls += 1;
-    }
-
-    function setSponsorRate(address sponsor, uint256 newRateBps) external {
-        sponsorRateBps[sponsor] = newRateBps;
-        setSponsorRateCalls += 1;
-    }
 }
 
 /// @notice Shared fixture wiring USDC + mock EarnCore + subscription stack.
@@ -52,12 +28,19 @@ abstract contract SubscriptionTestBase is Test {
     uint64 internal constant SUBSCRIPTION_DURATION = 365 days;
     uint256 internal constant SUBSCRIPTION_PRICE = 100e6; // 100 USDC
     uint256 internal constant INITIAL_TIMESTAMP = 1_743_465_600;
+    uint256 internal constant TEST_KYC_SIGNER_PK = 0xA11CE;
+    uint8 internal constant TEST_KYC_SCOPE_PACKAGE_PASS = 2;
+    bytes32 internal constant TEST_KYC_AUTHORIZATION_TYPEHASH =
+        keccak256("KycAuthorization(address user,uint8 scope,uint64 expiresAt,uint256 nonce)");
+    bytes32 internal constant TEST_EIP712_DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     address internal admin = makeAddr("admin");
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
     address internal carol = makeAddr("carol");
     address internal treasury = makeAddr("treasury");
+    address internal testKycSigner;
 
     MockUSDC internal usdc;
     MockEarnCoreStub internal earnCoreStub;
@@ -71,15 +54,11 @@ abstract contract SubscriptionTestBase is Test {
         earnCoreStub = new MockEarnCoreStub(treasury);
 
         SubscriptionNFT subImpl = new SubscriptionNFT();
-        ERC1967Proxy subProxy = new ERC1967Proxy(
-            address(subImpl), abi.encodeCall(SubscriptionNFT.initialize, (admin))
-        );
+        ERC1967Proxy subProxy = new ERC1967Proxy(address(subImpl), abi.encodeCall(SubscriptionNFT.initialize, (admin)));
         subNft = SubscriptionNFT(address(subProxy));
 
         PackagePassNFT passImpl = new PackagePassNFT();
-        ERC1967Proxy passProxy = new ERC1967Proxy(
-            address(passImpl), abi.encodeCall(PackagePassNFT.initialize, (admin))
-        );
+        ERC1967Proxy passProxy = new ERC1967Proxy(address(passImpl), abi.encodeCall(PackagePassNFT.initialize, (admin)));
         passNft = PackagePassNFT(address(passProxy));
 
         SubscriptionManager mImpl = new SubscriptionManager();
@@ -87,14 +66,7 @@ abstract contract SubscriptionTestBase is Test {
             address(mImpl),
             abi.encodeCall(
                 SubscriptionManager.initialize,
-                (
-                    admin,
-                    address(earnCoreStub),
-                    address(subNft),
-                    address(passNft),
-                    address(usdc),
-                    SUBSCRIPTION_PRICE
-                )
+                (admin, address(earnCoreStub), address(subNft), address(passNft), address(usdc), SUBSCRIPTION_PRICE)
             )
         );
         manager = SubscriptionManager(address(mProxy));
@@ -102,6 +74,8 @@ abstract contract SubscriptionTestBase is Test {
         vm.startPrank(admin);
         subNft.setManager(address(manager));
         passNft.setManager(address(manager));
+        testKycSigner = vm.addr(TEST_KYC_SIGNER_PK);
+        manager.setKycSigner(testKycSigner);
         vm.stopPrank();
 
         _fundAndApprove(alice, 1_000_000e6);
@@ -121,25 +95,51 @@ abstract contract SubscriptionTestBase is Test {
         manager.adminMintGenesisSubscription(user);
     }
 
-    function _addTier(uint256 price, uint32 seats, uint256 rateBps) internal returns (uint16 tierId) {
+    function _addTier(uint256 price, uint32 seats) internal returns (uint16 tierId) {
         vm.prank(admin);
-        tierId = manager.addTier(price, seats, rateBps, "ipfs://tier");
+        tierId = manager.addTier(price, seats, "ipfs://tier");
     }
 
     /// @notice Helper: grants `addr` a genesis subscription (if needed), creates a tier and
     ///         lets `addr` buy it so that `addr` carries `seats` on their `PackagePassNFT` and
     ///         can sponsor that many first-time `buySubscription` calls before the resolver
     ///         falls back to a null sponsor.
-    /// @dev Uses a dedicated tier with `price = 1 USDC` and `sponsorRateBps = 500` (5%). Returns
-    ///      the created tier id so callers that need to inspect tier data can do so.
+    /// @dev Uses a dedicated tier with `price = 1 USDC`. Returns the created tier id so callers
+    ///      that need to inspect tier data can do so.
     function _bootstrapPartnerPass(address addr, uint32 seats) internal returns (uint16 tierId) {
         if (!manager.hasActiveSubscription(addr)) {
             _grantGenesisSubscription(addr);
         }
-        tierId = _addTier(1e6, seats, 500);
-        vm.prank(addr);
-        // `address(0)` — the bootstrap partner is typically `admin`, who has a genesis sub and
-        // therefore no referrer; preserves the no-op path on `buyPackagePass(tier, partner)`.
-        manager.buyPackagePass(tierId, address(0));
+        tierId = _addTier(1e6, seats);
+        _buyPackagePass(addr, tierId, address(0));
+    }
+
+    function _buyPackagePass(address buyer, uint16 tierId, address partner) internal {
+        bytes memory authorization = _kycAuthorizationForManager(buyer);
+        vm.prank(buyer);
+        manager.buyPackagePass(tierId, partner, authorization);
+    }
+
+    function _kycAuthorizationForManager(address user) internal view returns (bytes memory) {
+        uint64 expiresAt = uint64(block.timestamp + 1 hours);
+        uint256 nonce = manager.kycNonce(user);
+        bytes32 structHash =
+            keccak256(abi.encode(TEST_KYC_AUTHORIZATION_TYPEHASH, user, TEST_KYC_SCOPE_PACKAGE_PASS, expiresAt, nonce));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(address(manager)), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(TEST_KYC_SIGNER_PK, digest);
+
+        return abi.encode(expiresAt, nonce, abi.encodePacked(r, s, v));
+    }
+
+    function _domainSeparator(address verifyingContract) internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                TEST_EIP712_DOMAIN_TYPEHASH,
+                keccak256(bytes("PAiT Subscription KYC")),
+                keccak256(bytes("1")),
+                block.chainid,
+                verifyingContract
+            )
+        );
     }
 }

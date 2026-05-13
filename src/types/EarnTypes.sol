@@ -11,9 +11,6 @@ library EarnTypes {
     }
 
     /// @notice Deposit position tracked by the core.
-    /// @dev Field order is storage-packing aware (9 slots instead of 10).
-    ///      Slot 7: owner(20) + openedAt(8) + isFrozen(1) + isClosed(1) = 30 bytes.
-    ///      Slot 8: sponsor(20) + frozenAt(8) = 28 bytes.
     struct Lot {
         uint256 id;
         address owner;
@@ -22,41 +19,30 @@ library EarnTypes {
         uint256 entryIndexRay;
         uint256 lastIndexRay;
         uint256 frozenIndexRay;
-        uint256 lastSponsorAccumulatorRay;
         uint64 openedAt;
         uint64 frozenAt;
         bool isFrozen;
         bool isClosed;
-        address sponsor;
+    }
+
+    /// @notice Lot slice requested as part of a batch withdrawal.
+    struct WithdrawalLotInput {
+        uint256 lotId;
+        uint256 shareAmount;
     }
 
     /// @notice Pending withdrawal request for a user.
     struct WithdrawalRequest {
         uint256 id;
         address owner;
-        uint256 lotId;
-        uint256 shareAmount;
+        uint256[] lotIds;
+        uint256[] shareAmounts;
         uint256 assetAmountSnapshot;
+        uint256 feeAmountSnapshot;
         uint64 requestedAt;
         uint64 executableAt;
         bool executed;
         bool cancelled;
-    }
-
-    /// @notice Accounting state for a sponsor.
-    struct SponsorAccount {
-        uint256 accrued;
-        uint256 claimable;
-        uint256 claimed;
-        uint256 lastAccumulatorRay;
-    }
-
-    /// @notice Sponsor rate checkpoint used for reward accrual.
-    struct SponsorRateVersion {
-        uint64 startTimestamp;
-        uint32 sponsorRateBps;
-        uint160 anchorIndexRay;
-        uint160 anchorAccumulatorRay;
     }
 
     /// @notice Aggregate product liabilities and liquid balances.
@@ -64,8 +50,6 @@ library EarnTypes {
         uint256 userPrincipalLiability;
         uint256 userYieldLiability;
         uint256 frozenWithdrawalLiability;
-        uint256 sponsorRewardLiability;
-        uint256 sponsorRewardClaimable;
         uint256 treasuryReportedAssets;
     }
 }

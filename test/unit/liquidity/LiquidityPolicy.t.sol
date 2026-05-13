@@ -44,7 +44,7 @@ contract LiquidityPolicyTest is EarnTestBase {
         uint256 shares = shareToken.balanceOf(alice);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, shares);
+        core.requestWithdrawal(_singleWithdrawal(lotId, shares));
 
         skip(24 hours);
 
@@ -74,7 +74,7 @@ contract LiquidityPolicyTest is EarnTestBase {
         skip(180 days);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, shares);
+        core.requestWithdrawal(_singleWithdrawal(lotId, shares));
 
         uint256 requiredTopUp = core.withdrawalRequest(alice).assetAmountSnapshot - core.availableLiquidity();
 
@@ -99,7 +99,7 @@ contract LiquidityPolicyTest is EarnTestBase {
         uint256 shares = shareToken.balanceOf(alice);
 
         vm.prank(alice);
-        core.requestWithdrawal(lotId, shares);
+        core.requestWithdrawal(_singleWithdrawal(lotId, shares));
 
         skip(24 hours);
 
