@@ -4,8 +4,6 @@ Upgradeable Solidity contracts for the PAiT EARN yield product.
 
 The protocol accepts USDC-style deposits, mints non-transferable share tokens, tracks linear yield through an APR index, gates user actions through an on-chain subscription system, and exposes separated roles for treasury, compliance, pausing, parameter management, reporting, and upgrades.
 
-Repository: <https://github.com/PA-Network-iT/Earn-contract.git>
-
 ## Contents
 
 - [Overview](#overview)
@@ -95,7 +93,7 @@ test/
 
 Additional documentation:
 
-- [`SECURITY_REVIEW_FUNCTIONAL_OVERVIEW.html`](./SECURITY_REVIEW_FUNCTIONAL_OVERVIEW.html) - functional security review notes for auditors and security reviewers.
+- [`REVIEW_FUNCTIONAL_OVERVIEW.html`](REVIEW_FUNCTIONAL_OVERVIEW.html) - functional security review notes for auditors and security reviewers.
 - [`script/README.md`](./script/README.md) - deployment script usage and environment variable details.
 - [`src/upgrade/migrations/README.md`](./src/upgrade/migrations/README.md) - migration notes.
 
@@ -227,7 +225,7 @@ This repository contains upgradeable contracts and role-gated operational flows.
 - Blacklist, rehabilitation, and compliance force-withdraw behavior.
 - Sponsor seat resolution, null-fallback revenue, and `SubscriptionManager.sweep`.
 
-See [`SECURITY_REVIEW_FUNCTIONAL_OVERVIEW.html`](./SECURITY_REVIEW_FUNCTIONAL_OVERVIEW.html) for a structured functional review document.
+See [`SECURITY_REVIEW_FUNCTIONAL_OVERVIEW.html`](REVIEW_FUNCTIONAL_OVERVIEW.html) for a structured functional review document.
 
 ## License
 
