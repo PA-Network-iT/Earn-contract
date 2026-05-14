@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EARN Contracts - Functional Security Review Notes</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17202a;
+      --muted: #5f6b7a;
+      --line: #d9dee7;
+      --panel: #f7f9fc;
+      --accent: #0b5cad;
+      --warn: #8a5a00;
+      --ok: #146c43;
+      --bg: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+    main {
+      width: min(1120px, calc(100% - 40px));
+      margin: 32px auto 64px;
+    }
+    h1, h2, h3 {
+      line-height: 1.2;
+      letter-spacing: 0;
+      margin: 0;
+    }
+    h1 { font-size: 32px; }
+    h2 {
+      font-size: 22px;
+      padding-top: 28px;
+      margin-top: 28px;
+      border-top: 1px solid var(--line);
+    }
+    h3 { font-size: 17px; margin-top: 22px; }
+    p { margin: 10px 0; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.92em;
+      background: #eef2f7;
+      padding: 1px 5px;
+      border-radius: 4px;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 18px;
+      table-layout: auto;
+    }
+    th, td {
+      vertical-align: top;
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    th {
+      text-align: left;
+      background: #eef4fb;
+      font-weight: 650;
+    }
+    ul { margin: 10px 0 16px 22px; padding: 0; }
+    li { margin: 6px 0; }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin: 22px 0;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 14px 16px;
+    }
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+    }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: #f2f7fd;
+      padding: 12px 14px;
+      margin: 16px 0;
+    }
+    .warning { border-left-color: var(--warn); background: #fff8e8; }
+    .ok { border-left-color: var(--ok); background: #eef8f2; }
+    .small { color: var(--muted); font-size: 13px; }
+    .toc {
+      columns: 2;
+      column-gap: 32px;
+    }
+    @media (max-width: 760px) {
+      main { width: min(100% - 24px, 1120px); margin-top: 20px; }
+      h1 { font-size: 26px; }
+      .meta { grid-template-columns: 1fr; }
+      .toc { columns: 1; }
+      .responsive-table,
+      .responsive-table thead,
+      .responsive-table tbody,
+      .responsive-table tr,
+      .responsive-table th,
+      .responsive-table td {
+        display: block;
+        width: 100%;
+      }
+      .responsive-table {
+        border-collapse: separate;
+        border-spacing: 0;
+      }
+      .responsive-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+      .responsive-table tr {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        margin: 12px 0;
+        overflow: hidden;
+        background: #ffffff;
+      }
+      .responsive-table td {
+        border: 0;
+        border-top: 1px solid var(--line);
+        display: grid;
+        grid-template-columns: minmax(110px, 34%) minmax(0, 1fr);
+        gap: 12px;
+      }
+      .responsive-table td:first-child {
+        border-top: 0;
+      }
+      .responsive-table td::before {
+        color: var(--muted);
+        font-weight: 650;
+      }
+      .scope-table td:nth-child(1)::before { content: "Area"; }
+      .scope-table td:nth-child(2)::before { content: "Files reviewed"; }
+      .scope-table td:nth-child(3)::before { content: "Responsibility"; }
+      .roles-table td:nth-child(1)::before { content: "Role"; }
+      .roles-table td:nth-child(2)::before { content: "Contracts"; }
+      .roles-table td:nth-child(3)::before { content: "Observed authority"; }
+      .review-table td:nth-child(1)::before { content: "Review area"; }
+      .review-table td:nth-child(2)::before { content: "Why it matters"; }
+      .review-table td:nth-child(3)::before { content: "Primary references"; }
+      .test-map-table td:nth-child(1)::before { content: "Test file"; }
+      .test-map-table td:nth-child(2)::before { content: "Main behavior covered"; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>EARN Contracts - Functional Security Review Notes</h1>
+  <p class="small">Generated on 2026-05-14 from source review only. No Solidity, test, script, or configuration file was modified.</p>
+
+  <section class="meta" aria-label="Document metadata">
+    <div class="card">
+      <div class="label">Repository</div>
+      <div><a href="https://github.com/PA-Network-iT/Earn-contract.git"><code>https://github.com/PA-Network-iT/Earn-contract.git</code></a></div>
+    </div>
+    <div class="card">
+      <div class="label">Stack</div>
+      <div>Foundry project, Solidity <code>0.8.30</code>, UUPS upgradeable contracts, OpenZeppelin upgradeable modules.</div>
+    </div>
+    <div class="card">
+      <div class="label">Verification note</div>
+      <div><code>forge</code> is not available in the current PATH, so tests were not executed during this documentation pass.</div>
+    </div>
+  </section>
+
+  <div class="callout">
+    <strong>Purpose.</strong> This document describes the observed behavior and review surface of the protocol functions for the security team. It is not a vulnerability report and does not claim exploitability. Items marked for review are points where implementation, operations, and intended specification should be checked together.
+  </div>
+
+  <h2>Table Of Contents</h2>
+  <ul class="toc">
+    <li><a href="#scope">Scope</a></li>
+    <li><a href="#architecture">Architecture Summary</a></li>
+    <li><a href="#roles">Roles And Permissions</a></li>
+    <li><a href="#earn-core">EarnCore Functional Behavior</a></li>
+    <li><a href="#subscription-manager">SubscriptionManager Functional Behavior</a></li>
+    <li><a href="#tokens">Token Behavior</a></li>
+    <li><a href="#invariants">Observed Invariants</a></li>
+    <li><a href="#review-points">Security Review Points</a></li>
+    <li><a href="#test-map">Test Map</a></li>
+  </ul>
+
+  <h2 id="scope">Scope</h2>
+  <table class="responsive-table scope-table">
+    <thead>
+      <tr>
+        <th>Area</th>
+        <th>Files reviewed</th>
+        <th>Responsibility</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Core yield product</td>
+        <td><code>src/EarnCore.sol</code>, <code>src/storage/EarnStorage.sol</code>, <code>src/types/EarnTypes.sol</code></td>
+        <td>USDC-style deposits, lots, share accounting, withdrawal lifecycle, treasury liquidity, blacklist controls, KYC threshold, subscription gate, upgrades.</td>
+      </tr>
+      <tr>
+        <td>Core math and authorization libraries</td>
+        <td><code>src/lib/IndexLib.sol</code>, <code>src/lib/WithdrawalLib.sol</code>, <code>src/lib/KycAuthorization.sol</code></td>
+        <td>Linear APR index, share/asset conversion, withdrawal lock timing, pro-rata principal split, EIP-712 KYC authorization decoding and constants.</td>
+      </tr>
+      <tr>
+        <td>Share token</td>
+        <td><code>src/EarnShareToken.sol</code></td>
+        <td>Non-transferable ERC-20 shares controlled by <code>EarnCore</code>, including locked balance accounting for pending withdrawals.</td>
+      </tr>
+      <tr>
+        <td>Subscription system</td>
+        <td><code>src/subscription/SubscriptionManager.sol</code>, <code>src/subscription/storage/SubscriptionManagerStorage.sol</code></td>
+        <td>Subscription gating, package pass purchases, sponsor resolution, KYC for pass purchase, revenue collection, sweep, admin bootstrap flows.</td>
+      </tr>
+      <tr>
+        <td>Soulbound NFTs</td>
+        <td><code>src/subscription/SubscriptionNFT.sol</code>, <code>src/subscription/PackagePassNFT.sol</code></td>
+        <td>Non-transferable subscription and package pass markers, manager-only mint/burn/update, deterministic token ids.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="architecture">Architecture Summary</h2>
+  <p>The protocol is split into a core yield product and a subscription layer. <code>EarnCore</code> holds the liquid asset buffer, mints non-transferable shares through <code>EarnShareToken</code>, tracks user positions as lots, and materializes linear APR through an index. <code>SubscriptionManager</code> decides whether a user is active for <code>EarnCore</code> gate checks and manages paid subscriptions, package passes, sponsor seats, and revenue collection.</p>
+  <p>All major contracts use proxy-compatible initialization patterns. <code>EarnCore</code>, <code>SubscriptionManager</code>, <code>SubscriptionNFT</code>, and <code>PackagePassNFT</code> inherit UUPS upgrade support and restrict upgrades through an <code>UPGRADER_ROLE</code> check.</p>
+  <p>The core starts with the subscription gate open because <code>_subscriptionManager == address(0)</code>. Once an admin sets a manager, user-facing deposits and withdrawals require an active subscription for the checked user.</p>
+
+  <h2 id="roles">Roles And Permissions</h2>
+  <table class="responsive-table roles-table">
+    <thead>
+      <tr>
+        <th>Role</th>
+        <th>Contracts</th>
+        <th>Observed authority</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>DEFAULT_ADMIN_ROLE</code></td>
+        <td><code>EarnCore</code>, <code>SubscriptionManager</code>, NFTs</td>
+        <td>Initial role holder. Can grant/revoke scoped roles. In core, sets share token, subscription manager, KYC signer, treasury wallet. In subscription manager, sets NFT addresses, EarnCore address, KYC signer, and admin bootstrap grants.</td>
+      </tr>
+      <tr>
+        <td><code>PARAMETER_MANAGER_ROLE</code></td>
+        <td><code>EarnCore</code>, <code>SubscriptionManager</code></td>
+        <td>Core APR, treasury ratio, minimum deposit, early withdrawal fee. Subscription price and tier lifecycle.</td>
+      </tr>
+      <tr>
+        <td><code>TREASURY_MANAGER_ROLE</code></td>
+        <td><code>EarnCore</code>, <code>SubscriptionManager</code></td>
+        <td>Core treasury transfers and buffer replenishment. Subscription manager revenue sweep and ERC-20 rescue.</td>
+      </tr>
+      <tr>
+        <td><code>COMPLIANCE_ROLE</code></td>
+        <td><code>EarnCore</code></td>
+        <td>Blacklist/unblacklist accounts and force-withdraw blacklisted user lots.</td>
+      </tr>
+      <tr>
+        <td><code>REPORTER_ROLE</code></td>
+        <td><code>EarnCore</code></td>
+        <td>Reports treasury-side assets into external accounting field <code>treasuryReportedAssets</code>.</td>
+      </tr>
+      <tr>
+        <td><code>PAUSER_ROLE</code></td>
+        <td><code>EarnCore</code>, <code>SubscriptionManager</code></td>
+        <td>Core has independent request/execute withdrawal pause switches. Subscription manager pauses user purchase/renew/upgrade actions.</td>
+      </tr>
+      <tr>
+        <td><code>UPGRADER_ROLE</code></td>
+        <td>All UUPS contracts</td>
+        <td>Authorizes implementation upgrades through <code>_authorizeUpgrade</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="earn-core">EarnCore Functional Behavior</h2>
+
+  <h3>Initialization And Wiring</h3>
+  <ul>
+    <li><code>initialize(admin, asset, treasuryWallet, genesisTimestamp, initialAprBps)</code> validates non-zero admin, asset, treasury wallet, and genesis timestamp. It grants all core roles to <code>admin</code>, initializes EIP-712 as <code>PAiT Earn KYC</code> version <code>1</code>, stores asset and treasury wallet, and creates the first APR version.</li>
+    <li>The initial APR anchor index is <code>IndexLib.ONE_RAY / 10</code>, i.e. <code>1e26</code>. Tests treat this as the canonical initial index.</li>
+    <li><code>setShareToken</code> can only be called once by the default admin. It requires non-zero code and requires the share token owner to be <code>EarnCore</code>.</li>
+    <li><code>setSubscriptionManager</code> activates the subscription gate by storing a non-zero contract address. Before this is set, the gate is intentionally permissive.</li>
+    <li><code>setKycSigner</code> and <code>initializeKycSigner</code> require a non-zero externally owned signer. Contract signers are rejected by checking <code>signer.code.length != 0</code>.</li>
+  </ul>
+
+  <h3>Deposit Flow</h3>
+  <ul>
+    <li>Entry points: <code>deposit(uint256,address)</code> and <code>deposit(uint256,address,bytes)</code>. Both are <code>nonReentrant</code> and check active subscription on the <code>receiver</code>, not the caller.</li>
+    <li>Caller and receiver must not be blacklisted. Receiver must be non-zero. Amount must be at least the effective minimum deposit.</li>
+    <li>Shares are computed as <code>assets * ONE_RAY / currentIndex</code>. If the computed share amount is zero, the call reverts.</li>
+    <li>KYC is threshold-based per receiver. Cumulative deposits up to <code>1,000e6</code> do not require a signature. Once a deposit crosses or exceeds the cap, the receiver must be the caller and a valid deposit-scope authorization must be consumed. The stored cumulative value is capped at the threshold.</li>
+    <li>Deposit assets are split by <code>_treasuryRatioBps</code>. The buffer portion is transferred to <code>EarnCore</code>; the treasury portion is transferred directly to <code>_treasuryWallet</code>.</li>
+    <li>A new lot is stored with principal, shares, entry index, timestamps, and open state. User principal liability and uncapped yield tracking counters are increased. The share token mints shares to the receiver.</li>
+  </ul>
+
+  <h3>Withdrawal Request Flow</h3>
+  <ul>
+    <li><code>requestWithdrawal</code> is <code>nonReentrant</code>, subscription-gated for <code>msg.sender</code>, and blocked for blacklisted users or when request pause is enabled.</li>
+    <li>A user can have at most one active, not executed, not cancelled withdrawal request.</li>
+    <li>The request accepts 1 to 50 lot slices. Duplicate lot ids, zero share amounts, non-owned lots, frozen lots, closed lots, and over-withdrawal are rejected.</li>
+    <li>The current index is frozen for the request. For each lot slice, the contract snapshots asset value at the frozen index and snapshots early withdrawal fee if the lot is younger than 365 days.</li>
+    <li>The total requested shares are locked in <code>EarnShareToken</code>. Full-lot withdrawals mark the lot frozen. Partial withdrawals reduce the existing lot in-place and do not create a replacement lot.</li>
+    <li>User principal liability decreases by the requested principal. Frozen withdrawal liability increases by net assets, i.e. <code>assetAmountSnapshot - feeAmountSnapshot</code>.</li>
+  </ul>
+
+  <h3>Cancel Withdrawal Flow</h3>
+  <ul>
+    <li><code>cancelWithdrawal</code> requires the caller to be subscribed and not blacklisted. It loads the caller's active request and rejects missing, executed, cancelled, or wrong-owner requests.</li>
+    <li>The request is marked cancelled. Frozen withdrawal liability is reduced by the request net amount.</li>
+    <li>Full frozen lots are thawed. Partial lot slices are restored into the same original lot. Principal liability and yield tracking counters are restored.</li>
+    <li>Previously locked shares are unlocked in <code>EarnShareToken</code>.</li>
+  </ul>
+
+  <h3>Execute Withdrawal Flow</h3>
+  <ul>
+    <li><code>executeWithdrawal</code> requires active subscription, non-blacklisted caller, execute pause disabled, valid active request, and 24-hour lock elapsed.</li>
+    <li>The payable amount is the request's net snapshot. Liquidity is checked against the actual asset balance of <code>EarnCore</code>.</li>
+    <li>The request is marked executed before external token transfer. Frozen withdrawal liability is decreased. Fully frozen lots are closed and thawed. Locked shares are burned.</li>
+    <li>The net asset amount is transferred to the request owner. Early withdrawal fees remain in the core balance because only net assets are paid out.</li>
+  </ul>
+
+  <h3>APR And Accounting</h3>
+  <ul>
+    <li><code>setApr</code> schedules an APR update 24 hours in the future. It rejects APR above 10,000 bps and rejects scheduling while a future APR version is pending.</li>
+    <li><code>IndexLib.currentIndex</code> chooses the latest version at or before the target timestamp and linearly materializes index growth from that version's anchor.</li>
+    <li><code>totals()</code> returns stored principal, frozen withdrawal liability, reported treasury assets, and live yield liability calculated from uncapped shares plus capped yield liability for blacklisted/capped lots.</li>
+  </ul>
+
+  <h3>Compliance And Blacklist</h3>
+  <ul>
+    <li><code>setBlacklist(account,true)</code> records the account blacklist timestamp and caps every currently open, uncapped lot at the current index. The lot is moved from live uncapped counters into capped yield liability.</li>
+    <li><code>setBlacklist(account,false)</code> clears the account-level blacklist timestamp and restores non-frozen open lots back to uncapped yield tracking.</li>
+    <li>Blacklisted users cannot deposit, request, cancel, or execute withdrawals through normal user paths.</li>
+    <li><code>forceWithdrawBlacklisted(user, lotId)</code> can be called by compliance only. It requires the user to currently be blacklisted, cancels an active request if it contains the target lot, pays at the lot-level or account-level blacklist cap index, closes the lot, burns unlocked shares, and transfers assets to the blacklisted user.</li>
+  </ul>
+
+  <h3>Treasury And Liquidity</h3>
+  <ul>
+    <li><code>setTreasuryRatio</code> controls the split applied to future deposits. It cannot exceed 10,000 bps.</li>
+    <li><code>reportTreasuryAssets</code> is external accounting. It only writes <code>treasuryReportedAssets</code>; it does not move tokens or check balances.</li>
+    <li><code>transferToTreasury</code> allows <code>TREASURY_MANAGER_ROLE</code> to transfer up to the smaller of core token balance and reported treasury assets, then reduces reported treasury assets.</li>
+    <li><code>replenishBuffer</code> transfers assets from the treasury manager into the core and reduces reported treasury assets by up to the replenished amount.</li>
+  </ul>
+
+  <h2 id="subscription-manager">SubscriptionManager Functional Behavior</h2>
+
+  <h3>Initialization And State</h3>
+  <ul>
+    <li><code>initialize</code> validates non-zero admin, EarnCore, SubscriptionNFT, PackagePassNFT, and payment token. It grants all subscription roles to admin and initializes EIP-712 as <code>PAiT Subscription KYC</code> version <code>1</code>.</li>
+    <li><code>hasActiveSubscription(user)</code> returns true only when <code>expiresAt &gt; block.timestamp</code>.</li>
+    <li>Subscriptions store <code>startedAt</code>, <code>expiresAt</code>, and <code>sponsor</code>. Passes store tier id, remaining seats, consumed seats, and purchase timestamp.</li>
+  </ul>
+
+  <h3>First-Time Subscription Purchase</h3>
+  <ul>
+    <li><code>buySubscription(partner)</code> is first-purchase only. A user with any existing subscription record, active or expired, must use renewal instead.</li>
+    <li>The requested partner must be non-zero, not the buyer, and actively subscribed.</li>
+    <li>Sponsor resolution consumes one available seat from the partner's pass when possible and records the partner as effective sponsor. If the partner has no pass or no seats, the effective sponsor is <code>address(0)</code>.</li>
+    <li>The buyer receives a 365-day subscription and a soulbound <code>SubscriptionNFT</code>.</li>
+    <li>Payment is first pulled into the manager. If the effective sponsor is non-zero, the full subscription price is transferred to that sponsor. If the effective sponsor is zero, the payment remains on the manager as pending revenue for later sweep.</li>
+  </ul>
+
+  <h3>Renewal</h3>
+  <ul>
+    <li><code>renewSubscription</code> requires a prior subscription record and requires it to be expired. Early renewal is not allowed.</li>
+    <li>Renewal only updates <code>expiresAt</code>. It preserves <code>startedAt</code>, <code>sponsor</code>, and the existing NFT.</li>
+    <li>Renewal revenue stays on <code>SubscriptionManager</code> until swept.</li>
+  </ul>
+
+  <h3>Package Pass Purchase</h3>
+  <ul>
+    <li><code>buyPackagePass(tierId, partner, kycAuthorization)</code> does not require an existing subscription. It always requires a package-pass-scope KYC authorization.</li>
+    <li>The tier must exist, be active, and have a non-zero price. The caller must not already own a pass.</li>
+    <li>First-time buyers may optionally bind a sponsor through the same seat resolver. Existing subscribers preserve their existing sponsor and do not consume another partner seat.</li>
+    <li>Pass purchase grants or extends the buyer to a 20-year bundled subscription. Existing longer subscriptions, including genesis subscriptions at <code>type(uint64).max</code>, are not shortened.</li>
+    <li>The pass NFT is minted with tier and remaining seats. Pass purchase revenue remains on the manager until swept.</li>
+  </ul>
+
+  <h3>Package Pass Upgrade</h3>
+  <ul>
+    <li><code>upgradePackagePass(newTierId)</code> requires the caller to have an active subscription and an existing pass.</li>
+    <li>The new tier must exist, be active, be different, and have a higher price. It also cannot reduce the absolute seat allowance below the user's existing absolute allowance.</li>
+    <li>The user pays only the price delta. The remaining seats become <code>newTier.seats - consumedSeats</code>. The NFT tier and remaining seats are updated in-place.</li>
+  </ul>
+
+  <h3>Admin And Treasury Operations</h3>
+  <ul>
+    <li><code>addTier</code>, <code>setTier</code>, and <code>removeTier</code> manage tier pricing, seats, active status, and metadata. Tier ids start from 1 and increase monotonically.</li>
+    <li><code>adminMintGenesisSubscription</code> creates a bootstrap subscription with <code>expiresAt = type(uint64).max</code>, used as a root sponsor.</li>
+    <li><code>adminGrantPackagePass</code> grants a pass without payment or sponsor binding, but uses the same 20-year subscription extension semantics as paid pass purchase.</li>
+    <li><code>sweep(token,to,amount)</code> can be called by <code>TREASURY_MANAGER_ROLE</code>, including while the manager is paused. It transfers any ERC-20 token from the manager. Only sweeps of the configured payment token increase <code>totalRevenueSwept</code>.</li>
+  </ul>
+
+  <h3>KYC Authorization</h3>
+  <ul>
+    <li>Both core deposit KYC and package-pass KYC use the same struct: <code>KycAuthorization(address user,uint8 scope,uint64 expiresAt,uint256 nonce)</code>.</li>
+    <li>Core and subscription manager use different EIP-712 domains. The scope separates deposit from package-pass authorization.</li>
+    <li>Each authorization must be non-empty, not expired, not more than one day into the future, match the current per-user nonce, and recover to the configured KYC signer.</li>
+    <li>Nonce increments after successful consumption, preventing replay on the same contract and user.</li>
+  </ul>
+
+  <h2 id="tokens">Token Behavior</h2>
+  <ul>
+    <li><code>EarnShareToken</code> is an ERC-20 with 6 decimals. Only its owner, expected to be <code>EarnCore</code>, can mint, burn, lock, and unlock. Transfers between non-zero addresses revert, so shares are non-transferable.</li>
+    <li>Locked shares cannot be burned through the normal unlocked burn path. Withdrawal settlement uses <code>burnLocked</code>, which reduces locked balance first.</li>
+    <li><code>SubscriptionNFT</code> and <code>PackagePassNFT</code> are deterministic-id, soulbound ERC-721 tokens where <code>tokenId = uint256(uint160(owner))</code>. They reject approval and non-mint/non-burn transfers.</li>
+    <li>Subscription and pass NFTs can only be minted, burned, or updated by their configured manager. Their default admin can change the manager address.</li>
+  </ul>
+
+  <h2 id="invariants">Observed Invariants</h2>
+  <ul>
+    <li>The APR index should not decrease under configured test scenarios.</li>
+    <li>One user can have many lots but at most one active withdrawal request.</li>
+    <li>Partial withdrawals reduce an existing lot in-place; they do not create fragmented replacement lots.</li>
+    <li>Frozen withdrawal liability is a snapshot and should not grow after request creation.</li>
+    <li>Cancellation restores the original lot state and yield tracking path for the requested slice.</li>
+    <li>Blacklist caps yield for affected lots at the blacklist timestamp, and rehabilitation restores open non-frozen lots to uncapped tracking.</li>
+    <li>Share token total supply changes only through core mint/burn paths; user-to-user share transfers are disabled.</li>
+    <li>Package pass consumed seats are monotonic and are used to make upgrade math independent from later admin edits to old tier storage.</li>
+  </ul>
+
+  <h2 id="review-points">Security Review Points</h2>
+  <div class="callout warning">
+    The following are review prompts. They are not asserted bugs. Each item should be checked against the intended product specification and deployment operations.
+  </div>
+  <table class="responsive-table review-table">
+    <thead>
+      <tr>
+        <th>Review area</th>
+        <th>Why it matters</th>
+        <th>Primary references</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Initial index <code>1e26</code></td>
+        <td>The genesis index is <code>ONE_RAY / 10</code>, so deposits mint 10x asset-denominated shares at launch. This appears intentional because tests rely on it, but auditors should confirm share/accounting assumptions and UI expectations.</td>
+        <td><code>EarnCore.initialize</code>, <code>IndexLib.previewSharesForDeposit</code>, <code>test/shared/EarnTestBase.sol</code></td>
+      </tr>
+      <tr>
+        <td>Subscription gate bootstrap</td>
+        <td>The core gate is open while <code>_subscriptionManager == address(0)</code>. This is useful for staged deployment but creates an operational window where user actions bypass subscription checks.</td>
+        <td><code>EarnCore.onlyActiveSubscriber</code>, <code>EarnCore.setSubscriptionManager</code>, <code>EarnCoreGate.t.sol</code></td>
+      </tr>
+      <tr>
+        <td>Wiring validation depth</td>
+        <td>Some admin-set addresses require code length; others only reject zero. Review whether interface probing, role ownership checks, or event-driven ops checks are required for production wiring.</td>
+        <td><code>setSubscriptionManager</code>, <code>setSubscriptionNFT</code>, <code>setPassNFT</code>, <code>setEarnCore</code>, NFT <code>setManager</code></td>
+      </tr>
+      <tr>
+        <td>KYC signer model</td>
+        <td>KYC signers must be EOAs because contract signers are rejected. Confirm this is compatible with multisig, account abstraction, signer rotation, and incident response requirements.</td>
+        <td><code>_setKycSigner</code> in <code>EarnCore</code> and <code>SubscriptionManager</code></td>
+      </tr>
+      <tr>
+        <td>KYC threshold behavior</td>
+        <td>Third-party deposits are allowed before the receiver crosses the cumulative threshold. Once KYC is required, <code>msg.sender</code> must equal receiver. Confirm the threshold and third-party deposit policy are intended.</td>
+        <td><code>EarnCore._enforceDepositKyc</code>, <code>KycDepositGate.t.sol</code></td>
+      </tr>
+      <tr>
+        <td>Liquidity model</td>
+        <td>Withdrawal liquidity checks use actual core token balance. Treasury-ratio deposits can send most funds directly to treasury, requiring later buffer replenishment for withdrawals and accrued yield.</td>
+        <td><code>deposit</code>, <code>_availableLiquidity</code>, <code>replenishBuffer</code>, <code>LiquidityPolicy.t.sol</code></td>
+      </tr>
+      <tr>
+        <td>Treasury reported assets</td>
+        <td><code>reportTreasuryAssets</code> is trust-based external accounting. <code>transferToTreasury</code> caps transfers by reported amount and actual core balance, but the reported amount itself is role-controlled.</td>
+        <td><code>reportTreasuryAssets</code>, <code>transferToTreasury</code>, <code>replenishBuffer</code></td>
+      </tr>
+      <tr>
+        <td>Withdrawal fee destination</td>
+        <td>Early withdrawal fees are netted out of user payout and remain in the core asset balance. Review intended fee ownership, reporting, and later transfer/reclassification path.</td>
+        <td><code>requestWithdrawal</code>, <code>executeWithdrawal</code>, <code>_earlyWithdrawalFee</code>, <code>WithdrawalFlow.t.sol</code></td>
+      </tr>
+      <tr>
+        <td>Force-withdraw payout recipient</td>
+        <td>Compliance force-withdraw pays the blacklisted user directly, not a treasury or escrow address. Confirm legal/compliance expectations for sanctioned or restricted accounts.</td>
+        <td><code>forceWithdrawBlacklisted</code>, <code>Compliance.t.sol</code></td>
+      </tr>
+      <tr>
+        <td>Sponsor null fallback and revenue comments</td>
+        <td>When a partner has no seats, the sponsor becomes zero and revenue remains on the manager for sweep. One in-code comment still describes an older "no sweep" state; tests and implementation now use <code>sweep</code>. Confirm spec/comment alignment.</td>
+        <td><code>buySubscription</code>, <code>sweep</code>, <code>BuySubscription.t.sol</code>, <code>Sweep.t.sol</code></td>
+      </tr>
+      <tr>
+        <td>Sweep authority</td>
+        <td><code>sweep</code> can move any ERC-20 from the manager to any non-zero address and works while paused. This is operationally useful but makes treasury role custody critical.</td>
+        <td><code>SubscriptionManager.sweep</code>, <code>Sweep.t.sol</code></td>
+      </tr>
+      <tr>
+        <td>Upgrade and storage layout</td>
+        <td>Contracts are UUPS upgradeable. Storage files include gaps and deprecated slots. Security review should include layout compatibility with any live proxy history before upgrade.</td>
+        <td><code>EarnStorage.sol</code>, <code>SubscriptionManagerStorage.sol</code>, all <code>_authorizeUpgrade</code> methods</td>
+      </tr>
+      <tr>
+        <td>External token assumptions</td>
+        <td>All asset and payment movements use <code>SafeERC20</code>. Review behavior with the exact deployed USDC/payment token, including zero-recipient handling, blacklist/freeze behavior, fees, and non-standard returns.</td>
+        <td><code>deposit</code>, <code>executeWithdrawal</code>, <code>transferToTreasury</code>, <code>_collectRevenue</code>, <code>sweep</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="test-map">Test Map</h2>
+  <table class="responsive-table test-map-table">
+    <thead>
+      <tr>
+        <th>Test file</th>
+        <th>Main behavior covered</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>test/unit/access/AccessControl.t.sol</code></td>
+        <td>Core role initialization, scoped admin permissions, share-token binding, upgrade authorization.</td>
+      </tr>
+      <tr>
+        <td><code>test/unit/accounting/IndexCheckpointing.t.sol</code></td>
+        <td>APR scheduling, index anchoring, linear growth, pending APR update rejection.</td>
+      </tr>
+      <tr>
+        <td><code>test/unit/deposit/DepositFlow.t.sol</code></td>
+        <td>Minimum deposit, share minting, treasury split, lot pagination, receiver checks, zero-share guard.</td>
+      </tr>
+      <tr>
+        <td><code>test/unit/withdrawal/WithdrawalFlow.t.sol</code></td>
+        <td>Request/cancel/execute lifecycle, batch limits, early fee snapshot, 24-hour lock, liquidity failures, pause switches, blacklisted user restrictions.</td>
+      </tr>
+      <tr>
+        <td><code>test/unit/solvency/SolvencyAccounting.t.sol</code></td>
+        <td>Principal, live yield, frozen withdrawal liability, partial withdrawal accounting, blacklist cap accounting.</td>
+      </tr>
+      <tr>
+        <td><code>test/unit/compliance/Compliance.t.sol</code></td>
+        <td>Blacklist access restrictions, current-index cap, re-blacklisting, force-withdraw cancellation and payout behavior.</td>
+      </tr>
+      <tr>
+        <td><code>test/unit/kyc/*.t.sol</code></td>
+        <td>Deposit threshold KYC, package-pass KYC, nonce replay protection, wrong scope, wrong signer, expired and too-long TTL authorizations.</td>
+      </tr>
+      <tr>
+        <td><code>test/unit/subscription/*.t.sol</code></td>
+        <td>Subscription purchase, renewals, package pass purchase and upgrade, sponsor seat consumption, null fallback, sweep, tier management, subscription gate integration.</td>
+      </tr>
+      <tr>
+        <td><code>test/unit/token/EarnShareToken.t.sol</code></td>
+        <td>Share-token metadata, owner-only mint/burn/lock/unlock, non-transferability, locked-balance preservation.</td>
+      </tr>
+      <tr>
+        <td><code>test/unit/upgrade/UUPSLifecycle.t.sol</code></td>
+        <td>Implementation initializer protection, role-gated upgrade, storage behavior around legacy minimum deposit.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout ok">
+    <strong>Change boundary.</strong> This HTML document is the only intended repository change from this pass. It is safe to delete or move independently because it is not imported by contracts, tests, scripts, or Foundry configuration.
+  </div>
+</main>
+</body>
+</html>
