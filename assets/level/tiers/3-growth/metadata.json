@@ -1,0 +1,35 @@
+{
+  "name": "PAiT Level — Growth",
+  "description": "Growth Level with 2% Performance Share on your network and 100 Allocation Accesses.",
+  "image": "../../level.svg",
+  "animation_url": "animation.webm",
+  "external_url": "https://pait.fi",
+  "attributes": [
+    {
+      "trait_type": "Tier",
+      "value": "Growth"
+    },
+    {
+      "trait_type": "Tier ID",
+      "value": 3,
+      "display_type": "number"
+    },
+    {
+      "trait_type": "Seats",
+      "value": 100,
+      "display_type": "number"
+    },
+    {
+      "trait_type": "Performance Share",
+      "value": "2%"
+    },
+    {
+      "trait_type": "Color",
+      "value": "Blue"
+    },
+    {
+      "trait_type": "Transferable",
+      "value": "No"
+    }
+  ]
+}

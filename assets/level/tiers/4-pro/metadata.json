@@ -1,0 +1,39 @@
+{
+  "name": "PAiT Level — Pro",
+  "description": "Pro Level with 3% Performance Share, 200 Allocation Accesses, and a $7,500 weekly binary cap.",
+  "image": "../../level.svg",
+  "animation_url": "animation.webm",
+  "external_url": "https://pait.fi",
+  "attributes": [
+    {
+      "trait_type": "Tier",
+      "value": "Pro"
+    },
+    {
+      "trait_type": "Tier ID",
+      "value": 4,
+      "display_type": "number"
+    },
+    {
+      "trait_type": "Seats",
+      "value": 200,
+      "display_type": "number"
+    },
+    {
+      "trait_type": "Performance Share",
+      "value": "3%"
+    },
+    {
+      "trait_type": "Weekly Binary Cap",
+      "value": "$7,500"
+    },
+    {
+      "trait_type": "Color",
+      "value": "Pink"
+    },
+    {
+      "trait_type": "Transferable",
+      "value": "No"
+    }
+  ]
+}

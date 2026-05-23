@@ -1,0 +1,20 @@
+{
+  "name": "PAiT Subscription",
+  "description": "Soulbound PAiT Subscription NFT. Grants access to EarnCore deposit, withdrawal, and sponsor reward features while active.",
+  "image": "image.svg",
+  "external_url": "https://pait.fi",
+  "attributes": [
+    {
+      "trait_type": "Type",
+      "value": "Subscription"
+    },
+    {
+      "trait_type": "Duration",
+      "value": "365 days"
+    },
+    {
+      "trait_type": "Transferable",
+      "value": "No"
+    }
+  ]
+}

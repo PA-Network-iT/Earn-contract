@@ -1,0 +1,35 @@
+{
+  "name": "PAiT Level — Entry",
+  "description": "Entry Level. Activate your personal referral link with 20 Allocation Accesses.",
+  "image": "../../pass.svg",
+  "animation_url": "animation.webm",
+  "external_url": "https://pait.fi",
+  "attributes": [
+    {
+      "trait_type": "Tier",
+      "value": "Entry"
+    },
+    {
+      "trait_type": "Tier ID",
+      "value": 1,
+      "display_type": "number"
+    },
+    {
+      "trait_type": "Seats",
+      "value": 20,
+      "display_type": "number"
+    },
+    {
+      "trait_type": "Performance Share",
+      "value": "0%"
+    },
+    {
+      "trait_type": "Color",
+      "value": "Cyan"
+    },
+    {
+      "trait_type": "Transferable",
+      "value": "No"
+    }
+  ]
+}

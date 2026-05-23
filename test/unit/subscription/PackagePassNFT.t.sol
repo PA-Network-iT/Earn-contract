@@ -35,8 +35,8 @@ contract PackagePassNFTTest is Test {
     }
 
     function test_initializeSetsMetadata() public view {
-        assertEq(nft.name(), "PAiT Package Pass");
-        assertEq(nft.symbol(), "PAIT-PASS");
+        assertEq(nft.name(), "PAiT Level");
+        assertEq(nft.symbol(), "PAIT-LEVEL");
     }
 
     function test_tokenIdIsDeterministic() public view {

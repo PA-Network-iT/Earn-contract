@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "description": "Local asset manifest for IPFS pinning and on-chain tier setup. Fill metadataURI after upload.",
+  "subscription": {
+    "contract": "SubscriptionNFT",
+    "metadataPath": "subscription/metadata.json",
+    "imagePath": "subscription/image.svg",
+    "metadataURI": "ipfs://bafybeig6oamha4u2nhhd7vtcq5ayaymcvdhtgmzsdtthifei7j64markaa/subscription/metadata.json"
+  },
+  "packagePassTiers": [
+    {
+      "tierId": 1,
+      "slug": "1-entry",
+      "name": "Entry",
+      "suggestedPriceUsdc": 1000,
+      "seats": 20,
+      "metadataPath": "package-pass/tiers/1-entry/metadata.json",
+      "animationPath": "package-pass/tiers/1-entry/animation.webm",
+      "metadataURI": "ipfs://bafybeig6oamha4u2nhhd7vtcq5ayaymcvdhtgmzsdtthifei7j64markaa/package-pass/tiers/1-entry/metadata.json"
+    },
+    {
+      "tierId": 2,
+      "slug": "2-core",
+      "name": "Core",
+      "suggestedPriceUsdc": 2000,
+      "seats": 40,
+      "metadataPath": "package-pass/tiers/2-core/metadata.json",
+      "animationPath": "package-pass/tiers/2-core/animation.webm",
+      "metadataURI": "ipfs://bafybeig6oamha4u2nhhd7vtcq5ayaymcvdhtgmzsdtthifei7j64markaa/package-pass/tiers/2-core/metadata.json"
+    },
+    {
+      "tierId": 3,
+      "slug": "3-growth",
+      "name": "Growth",
+      "suggestedPriceUsdc": 5000,
+      "seats": 100,
+      "metadataPath": "package-pass/tiers/3-growth/metadata.json",
+      "animationPath": "package-pass/tiers/3-growth/animation.webm",
+      "metadataURI": "ipfs://bafybeig6oamha4u2nhhd7vtcq5ayaymcvdhtgmzsdtthifei7j64markaa/package-pass/tiers/3-growth/metadata.json"
+    },
+    {
+      "tierId": 4,
+      "slug": "4-pro",
+      "name": "Pro",
+      "suggestedPriceUsdc": 10000,
+      "seats": 200,
+      "metadataPath": "package-pass/tiers/4-pro/metadata.json",
+      "animationPath": "package-pass/tiers/4-pro/animation.webm",
+      "metadataURI": "ipfs://bafybeig6oamha4u2nhhd7vtcq5ayaymcvdhtgmzsdtthifei7j64markaa/package-pass/tiers/4-pro/metadata.json"
+    },
+    {
+      "tierId": 5,
+      "slug": "5-elite",
+      "name": "Elite",
+      "suggestedPriceUsdc": 20000,
+      "seats": 400,
+      "metadataPath": "package-pass/tiers/5-elite/metadata.json",
+      "animationPath": "package-pass/tiers/5-elite/animation.webm",
+      "metadataURI": "ipfs://bafybeig6oamha4u2nhhd7vtcq5ayaymcvdhtgmzsdtthifei7j64markaa/package-pass/tiers/5-elite/metadata.json"
+    }
+  ]
+}

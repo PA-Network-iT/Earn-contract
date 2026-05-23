@@ -1,0 +1,39 @@
+{
+  "name": "PAiT Level — Elite",
+  "description": "Elite Level with maximum 4% Performance Share, 400 Allocation Accesses, and a $10,000 weekly binary cap.",
+  "image": "../../level.svg",
+  "animation_url": "animation.webm",
+  "external_url": "https://pait.fi",
+  "attributes": [
+    {
+      "trait_type": "Tier",
+      "value": "Elite"
+    },
+    {
+      "trait_type": "Tier ID",
+      "value": 5,
+      "display_type": "number"
+    },
+    {
+      "trait_type": "Seats",
+      "value": 400,
+      "display_type": "number"
+    },
+    {
+      "trait_type": "Performance Share",
+      "value": "4%"
+    },
+    {
+      "trait_type": "Weekly Binary Cap",
+      "value": "$10,000"
+    },
+    {
+      "trait_type": "Color",
+      "value": "Green"
+    },
+    {
+      "trait_type": "Transferable",
+      "value": "No"
+    }
+  ]
+}

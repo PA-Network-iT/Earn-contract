@@ -1,0 +1,35 @@
+{
+  "name": "PAiT Level — Core",
+  "description": "Core Level with 1% Performance Share on your network and 40 Allocation Accesses.",
+  "image": "../../level.svg",
+  "animation_url": "animation.webm",
+  "external_url": "https://pait.fi",
+  "attributes": [
+    {
+      "trait_type": "Tier",
+      "value": "Core"
+    },
+    {
+      "trait_type": "Tier ID",
+      "value": 2,
+      "display_type": "number"
+    },
+    {
+      "trait_type": "Seats",
+      "value": 40,
+      "display_type": "number"
+    },
+    {
+      "trait_type": "Performance Share",
+      "value": "1%"
+    },
+    {
+      "trait_type": "Color",
+      "value": "Orange"
+    },
+    {
+      "trait_type": "Transferable",
+      "value": "No"
+    }
+  ]
+}

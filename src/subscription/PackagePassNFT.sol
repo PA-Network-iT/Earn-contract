@@ -18,7 +18,7 @@ error ZeroAddress();
 error UnauthorizedUpgrade(address caller);
 error InvalidAdmin(address admin);
 
-/// @notice Soulbound ERC-721 representing a PAiT package pass.
+/// @notice Soulbound ERC-721 representing a PAiT Level.
 /// @dev Stores `tierId` and cumulative `seats` per owner in addition to the ERC-721 token.
 ///      Tier / seats are updatable in-place via `setTier` without re-minting the NFT.
 contract PackagePassNFT is Initializable, ERC721Upgradeable, AccessControlUpgradeable, UUPSUpgradeable, IPackagePassNFT {
@@ -45,7 +45,7 @@ contract PackagePassNFT is Initializable, ERC721Upgradeable, AccessControlUpgrad
             revert InvalidAdmin(admin);
         }
 
-        __ERC721_init("PAiT Package Pass", "PAIT-PASS");
+        __ERC721_init("PAiT Level", "PAIT-LEVEL");
         __AccessControl_init();
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
