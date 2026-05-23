@@ -30,6 +30,7 @@ contract BuySubscriptionTest is SubscriptionTestBase {
         assertFalse(manager.hasActiveSubscription(alice));
         assertEq(manager.subscriptionPrice(), SUBSCRIPTION_PRICE);
         assertEq(manager.paymentToken(), address(usdc));
+        assertEq(manager.treasuryWallet(), treasury);
         assertEq(manager.earnCore(), address(earnCoreStub));
     }
 
@@ -50,7 +51,6 @@ contract BuySubscriptionTest is SubscriptionTestBase {
         uint256 aliceBefore = usdc.balanceOf(alice);
         uint256 adminBefore = usdc.balanceOf(admin);
         uint256 managerBefore = usdc.balanceOf(address(manager));
-        uint256 sweptBefore = manager.totalRevenueSwept();
 
         vm.expectEmit(true, true, false, true, address(manager));
         emit SubscriptionRevenueToSponsor(alice, admin, SUBSCRIPTION_PRICE);
@@ -73,20 +73,17 @@ contract BuySubscriptionTest is SubscriptionTestBase {
         assertEq(sub.startedAt, uint64(block.timestamp));
         assertEq(sub.expiresAt, uint64(block.timestamp) + SUBSCRIPTION_DURATION);
 
-        // Revenue routes direct-to-sponsor: admin gets the full price, treasury gets nothing.
-        assertEq(usdc.balanceOf(admin) - adminBefore, SUBSCRIPTION_PRICE);
-        assertEq(usdc.balanceOf(treasury) - treasuryBefore, 0);
+        // Revenue routes to treasury; sponsor is recorded for graph accounting only.
+        assertEq(usdc.balanceOf(treasury) - treasuryBefore, SUBSCRIPTION_PRICE);
+        assertEq(usdc.balanceOf(admin) - adminBefore, 0);
         assertEq(aliceBefore - usdc.balanceOf(alice), SUBSCRIPTION_PRICE);
-        assertEq(usdc.balanceOf(address(manager)), managerBefore, "manager holds no new USDC when sponsor is live");
+        assertEq(usdc.balanceOf(address(manager)), managerBefore, "manager holds no payment token");
 
         assertEq(subNft.balanceOf(alice), 1);
         assertEq(subNft.ownerOf(subNft.tokenIdOf(alice)), alice);
-
-        // Direct-to-sponsor payouts bypass the contract balance, so `totalRevenueSwept` is untouched.
-        assertEq(manager.totalRevenueSwept() - sweptBefore, 0);
     }
 
-    function test_buySubscriptionNullSponsorRetainsRevenueOnContract() public {
+    function test_buySubscriptionNullSponsorRoutesRevenueToTreasury() public {
         // admin has a genesis sub but no pass -> seats = 0 -> null fallback.
         _grantGenesisSubscription(admin);
 
@@ -101,12 +98,11 @@ contract BuySubscriptionTest is SubscriptionTestBase {
         manager.buySubscription(admin);
 
         assertEq(manager.subscriptionOf(alice).sponsor, address(0));
-        // USDC stays on the manager as collected revenue awaiting sweep.
-        assertEq(usdc.balanceOf(address(manager)) - managerBefore, SUBSCRIPTION_PRICE);
-        assertEq(usdc.balanceOf(treasury) - treasuryBefore, 0);
+        assertEq(usdc.balanceOf(treasury) - treasuryBefore, SUBSCRIPTION_PRICE);
+        assertEq(usdc.balanceOf(address(manager)) - managerBefore, 0);
         assertEq(usdc.balanceOf(admin) - adminBefore, 0);
         assertEq(manager.totalRevenueSwept(), 0);
-        assertEq(manager.pendingRevenue(), usdc.balanceOf(address(manager)));
+        assertEq(manager.pendingRevenue(), 0);
     }
 
     function test_buySubscriptionRevertsOnZeroSponsor() public {

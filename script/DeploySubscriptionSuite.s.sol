@@ -21,6 +21,7 @@ import {SubscriptionManager} from "src/subscription/SubscriptionManager.sol";
 ///                                       second script)
 ///   EARN_PROXY                       — EarnCore proxy (passed into SubscriptionManager.initialize)
 ///   EARN_ASSET                       — payment token (USDC) consumed by SubscriptionManager
+///   EARN_TREASURY_WALLET             — wallet that receives all subscription/pass revenue
 ///   SUBSCRIPTION_PRICE               — initial subscription price in token decimals (e.g. 1e6 USDC)
 ///   SUBSCRIPTION_SET_MANAGER         — optional, default `true`. When true, the deployer calls
 ///                                       `setManager` on both NFTs so SubscriptionManager can mint.
@@ -48,12 +49,14 @@ contract DeploySubscriptionSuiteScript is Script {
         address admin = vm.envAddress("SUBSCRIPTION_ADMIN");
         address earnCore = vm.envAddress("EARN_PROXY");
         address asset = vm.envAddress("EARN_ASSET");
+        address treasuryWallet = vm.envAddress("EARN_TREASURY_WALLET");
         uint256 subscriptionPrice = vm.envUint("SUBSCRIPTION_PRICE");
         bool setManager = vm.envOr("SUBSCRIPTION_SET_MANAGER", true);
 
         if (admin == address(0)) revert ZeroAddress("SUBSCRIPTION_ADMIN");
         if (earnCore == address(0)) revert ZeroAddress("EARN_PROXY");
         if (asset == address(0)) revert ZeroAddress("EARN_ASSET");
+        if (treasuryWallet == address(0)) revert ZeroAddress("EARN_TREASURY_WALLET");
         if (subscriptionPrice == 0) revert InvalidPrice();
 
         vm.startBroadcast(deployerPrivateKey);
@@ -73,7 +76,7 @@ contract DeploySubscriptionSuiteScript is Script {
             address(managerImpl),
             abi.encodeCall(
                 SubscriptionManager.initialize,
-                (admin, earnCore, address(subProxy), address(passProxy), asset, subscriptionPrice)
+                (admin, earnCore, address(subProxy), address(passProxy), asset, treasuryWallet, subscriptionPrice)
             )
         );
 

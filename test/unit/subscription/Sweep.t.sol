@@ -17,10 +17,7 @@ contract SweepTest is SubscriptionTestBase {
 
     function setUp() public override {
         super.setUp();
-        _grantGenesisSubscription(admin);
-        // alice has no pass -> null fallback; 100e6 USDC lands on the manager as collected revenue.
-        vm.prank(alice);
-        manager.buySubscription(admin);
+        usdc.mint(address(manager), 100e6);
     }
 
     function test_sweepPaymentTokenTransfersAndBumpsCounter() public {

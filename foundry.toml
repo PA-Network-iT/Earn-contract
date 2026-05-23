@@ -32,3 +32,9 @@ runs = 128
 depth = 32
 fail_on_revert = false
 show_metrics = true
+
+[etherscan]
+mainnet = { key = "${ETHERSCAN_API_KEY}" }
+
+[rpc_endpoints]
+mainnet = "${RPC_URL}"

@@ -52,11 +52,10 @@ contract UpgradePackagePassTest is SubscriptionTestBase {
         assertEq(p.tierId, tier2);
         assertEq(p.seats, 15);
 
-        // Treasury receives nothing — upgrade delta stays on the manager awaiting sweep.
-        assertEq(usdc.balanceOf(treasury) - treasuryBefore, 0);
+        // Upgrade delta routes straight to treasury.
+        assertEq(usdc.balanceOf(treasury) - treasuryBefore, 300e6);
         assertEq(aliceBefore - usdc.balanceOf(alice), 300e6);
-        // 100e6 (null-sub) + 200e6 (tier1 pass) + 300e6 (upgrade delta) = 600e6 retained.
-        assertEq(usdc.balanceOf(address(manager)), 600e6);
+        assertEq(usdc.balanceOf(address(manager)), 0);
 
         assertEq(passNft.tierOf(alice), tier2);
         assertEq(passNft.seatsOf(alice), 15);

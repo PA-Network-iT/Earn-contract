@@ -35,7 +35,7 @@ contract EarnCoreGateTest is EarnTestBase {
             address(mImpl),
             abi.encodeCall(
                 SubscriptionManager.initialize,
-                (admin, address(core), address(subNft), address(passNft), asset, SUB_PRICE)
+                (admin, address(core), address(subNft), address(passNft), asset, treasury, SUB_PRICE)
             )
         );
         subscriptionManager = SubscriptionManager(address(mProxy));

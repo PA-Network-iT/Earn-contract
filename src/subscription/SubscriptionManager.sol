@@ -40,12 +40,13 @@ error InvalidPrice();
 error SubscriptionPriceNotSet();
 error EarnCoreNotSet();
 error InvalidAdmin(address admin);
+error InvalidTreasuryWallet(address treasuryWallet);
 error UnauthorizedUpgrade(address caller);
 
 /// @notice On-chain subscription and package-pass registry for the PAiT EARN product.
 /// @dev Gates user entry points of EarnCore via `hasActiveSubscription`. Mints soulbound NFTs
-///      representing the subscription and the package pass; forwards revenue to the treasury
-///      configured on EarnCore.
+///      representing the subscription and the package pass; forwards all collected revenue to
+///      `_treasuryWallet`.
 contract SubscriptionManager is
     Initializable,
     AccessControlUpgradeable,
@@ -93,10 +94,10 @@ contract SubscriptionManager is
     event TierUpdated(uint16 indexed tierId, uint256 price, uint32 seats, bool active);
     event TierRemoved(uint16 indexed tierId);
     event SubscriptionPriceUpdated(uint256 newPrice);
+    event TreasuryWalletUpdated(address indexed newTreasuryWallet);
     /// @notice Emitted on first-time `buySubscription` once the subscription price has been
-    ///         routed to the effective sponsor. Fires unconditionally — `sponsor == address(0)`
-    ///         means the null-fallback path was hit and the USDC stays on this contract as
-    ///         collected revenue awaiting `sweep` (see §7.1 / §8 I-9).
+    ///         routed to `_treasuryWallet`. Fires unconditionally — `sponsor == address(0)`
+    ///         means the null-fallback path was hit (revenue still lands in treasury).
     event SubscriptionRevenueToSponsor(address indexed payer, address indexed sponsor, uint256 amount);
     /// @notice Emitted when collected revenue (the payment token or any other ERC-20 accidentally
     ///         residing on the contract) is moved off-contract via `sweep`.
@@ -131,6 +132,7 @@ contract SubscriptionManager is
         address subscriptionNFT_,
         address packagePassNFT_,
         address paymentToken_,
+        address treasuryWallet_,
         uint256 initialPrice
     ) external initializer {
         if (admin == address(0)) {
@@ -141,6 +143,9 @@ contract SubscriptionManager is
                 || paymentToken_ == address(0)
         ) {
             revert ZeroAddress();
+        }
+        if (treasuryWallet_ == address(0)) {
+            revert InvalidTreasuryWallet(treasuryWallet_);
         }
 
         __AccessControl_init();
@@ -157,6 +162,7 @@ contract SubscriptionManager is
         _subscriptionNFT = subscriptionNFT_;
         _packagePassNFT = packagePassNFT_;
         _paymentToken = paymentToken_;
+        _treasuryWallet = treasuryWallet_;
         _subscriptionPrice = initialPrice;
         _nextTierId = 0;
     }
@@ -223,6 +229,10 @@ contract SubscriptionManager is
         return _paymentToken;
     }
 
+    function treasuryWallet() external view returns (address) {
+        return _treasuryWallet;
+    }
+
     function subscriptionNFT() external view returns (address) {
         return _subscriptionNFT;
     }
@@ -264,11 +274,9 @@ contract SubscriptionManager is
     ///      otherwise the effective sponsor is `address(0)` (null fallback). The sponsor is
     ///      written once in SubscriptionManager. A single soulbound `SubscriptionNFT` is minted.
     ///
-    ///      Revenue routing (subscription-only): the full `_subscriptionPrice` is transferred
-    ///      directly to `effectiveSponsor` when non-zero. On null fallback the USDC stays on this
-    ///      contract as un-accounted idle balance — no accumulator is kept and no sweep function
-    ///      exists (deliberate "black hole" — see spec §7.1 / §8 I-9). Renewal and package-pass
-    ///      flows continue to forward to treasury unchanged.
+    ///      Revenue routing: the full `_subscriptionPrice` is transferred to `_treasuryWallet`.
+    ///      `effectiveSponsor` is recorded for sponsor-graph accounting only — it does not receive
+    ///      the payment token.
     /// @param partner The sponsor address to bind to. MUST be an address with an active
     ///        subscription (genesis or regular), not `msg.sender`, and not `address(0)`.
     function buySubscription(address partner) external nonReentrant whenNotPaused {
@@ -302,12 +310,6 @@ contract SubscriptionManager is
         _collectRevenue(msg.sender, _subscriptionPrice);
 
         ISubscriptionNFT(_subscriptionNFT).mint(msg.sender);
-        if (effectiveSponsor != address(0)) {
-            // Direct-to-sponsor payout: full subscription price bypasses the contract balance.
-            IERC20(_paymentToken).safeTransfer(effectiveSponsor, _subscriptionPrice);
-        }
-        // Else (null fallback): USDC remains on this contract as collected revenue, swept later
-        // by `TREASURY_MANAGER_ROLE` via `sweep`.
         emit SubscriptionRevenueToSponsor(msg.sender, effectiveSponsor, _subscriptionPrice);
 
         emit SubscriptionPurchased(msg.sender, effectiveSponsor, nowTs, newExpiresAt, _subscriptionPrice, false);
@@ -334,7 +336,6 @@ contract SubscriptionManager is
         uint64 newExpiresAt = uint64(block.timestamp) + SUBSCRIPTION_DURATION;
         existing.expiresAt = newExpiresAt;
 
-        // Renewal revenue stays on the contract as collected balance awaiting `sweep`.
         _collectRevenue(msg.sender, _subscriptionPrice);
 
         emit SubscriptionPurchased(
@@ -409,7 +410,6 @@ contract SubscriptionManager is
         _bindSponsorForPass(msg.sender, partner);
         _grantPassSubscription(msg.sender);
 
-        // Pass revenue stays on the contract as collected balance awaiting `sweep`.
         _collectRevenue(msg.sender, price);
 
         IPackagePassNFT(_packagePassNFT).mint(msg.sender, tierId, seats);
@@ -520,7 +520,6 @@ contract SubscriptionManager is
         existing.tierId = newTierId;
         existing.seats = newSeats;
 
-        // Upgrade delta stays on the contract as collected balance awaiting `sweep`.
         _collectRevenue(msg.sender, delta);
 
         IPackagePassNFT(_packagePassNFT).setTier(msg.sender, newTierId, newSeats);
@@ -605,6 +604,12 @@ contract SubscriptionManager is
         emit EarnCoreUpdated(earn);
     }
 
+    function setTreasuryWallet(address newTreasuryWallet) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newTreasuryWallet == address(0)) revert InvalidTreasuryWallet(newTreasuryWallet);
+        _treasuryWallet = newTreasuryWallet;
+        emit TreasuryWalletUpdated(newTreasuryWallet);
+    }
+
     function setKycSigner(address signer) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setKycSigner(signer);
     }
@@ -612,6 +617,16 @@ contract SubscriptionManager is
     function initializeKycSigner(address signer) external onlyRole(DEFAULT_ADMIN_ROLE) reinitializer(3) {
         __EIP712_init("PAiT Subscription KYC", "1");
         _setKycSigner(signer);
+    }
+
+    /// @notice One-shot migration for v1 deployments that predated `_treasuryWallet`.
+    /// @dev    Run atomically inside `upgradeToAndCall` after deploying the v2 implementation.
+    ///         Caller must hold both `UPGRADER_ROLE` (for the upgrade) and `DEFAULT_ADMIN_ROLE`
+    ///         (for this reinitializer). Reinitializer version 4 follows `initializeKycSigner` (3).
+    function initializeTreasuryWallet(address treasuryWallet_) external onlyRole(DEFAULT_ADMIN_ROLE) reinitializer(4) {
+        if (treasuryWallet_ == address(0)) revert InvalidTreasuryWallet(treasuryWallet_);
+        _treasuryWallet = treasuryWallet_;
+        emit TreasuryWalletUpdated(treasuryWallet_);
     }
 
     function _setKycSigner(address signer) internal {
@@ -659,9 +674,8 @@ contract SubscriptionManager is
     // Treasury: sweep
     // ==============================================================
 
-    /// @notice Moves `amount` of `token` from this contract to `to`. Used by the treasury role to
-    ///         collect revenue accrued on the contract from `renewSubscription`, `buyPackagePass`,
-    ///         `upgradePackagePass` and null-fallback `buySubscription` flows.
+    /// @notice Moves `amount` of `token` from this contract to `to`. Primary revenue flows go
+    ///         straight to `_treasuryWallet`; `sweep` is for accidental/residual balances.
     /// @dev Works for any ERC-20: the contract is not supposed to hold non-payment tokens, so this
     ///      doubles as a rescue path for accidental transfers. Only `_paymentToken` sweeps are
     ///      reflected in the `totalRevenueSwept` audit counter; other tokens are not tracked
@@ -735,7 +749,9 @@ contract SubscriptionManager is
 
     function _collectRevenue(address payer, uint256 amount) internal {
         if (amount == 0) return;
-        IERC20(_paymentToken).safeTransferFrom(payer, address(this), amount);
+        address recipient = _treasuryWallet;
+        if (recipient == address(0)) revert InvalidTreasuryWallet(recipient);
+        IERC20(_paymentToken).safeTransferFrom(payer, recipient, amount);
     }
 
     function _authorizeUpgrade(address) internal view override {

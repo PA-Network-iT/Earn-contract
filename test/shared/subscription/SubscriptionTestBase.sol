@@ -66,7 +66,7 @@ abstract contract SubscriptionTestBase is Test {
             address(mImpl),
             abi.encodeCall(
                 SubscriptionManager.initialize,
-                (admin, address(earnCoreStub), address(subNft), address(passNft), address(usdc), SUBSCRIPTION_PRICE)
+                (admin, address(earnCoreStub), address(subNft), address(passNft), address(usdc), treasury, SUBSCRIPTION_PRICE)
             )
         );
         manager = SubscriptionManager(address(mProxy));

@@ -75,17 +75,14 @@ contract RenewSubscriptionTest is SubscriptionTestBase {
         assertEq(after_.expiresAt, uint64(block.timestamp) + SUBSCRIPTION_DURATION);
 
         assertEq(passNft.seatsOf(admin), seatsBefore, "renewal must not consume a partner seat");
-        // Renewal revenue now accumulates on the contract instead of going straight to treasury.
         assertEq(
-            usdc.balanceOf(treasury) - treasuryBefore, 0, "treasury must not receive renewal revenue synchronously"
-        );
-        assertEq(
-            usdc.balanceOf(address(manager)) - managerBefore,
+            usdc.balanceOf(treasury) - treasuryBefore,
             SUBSCRIPTION_PRICE,
-            "renewal revenue must land on the manager"
+            "renewal revenue must land in treasury"
         );
+        assertEq(usdc.balanceOf(address(manager)), managerBefore, "manager holds no payment token");
         assertEq(manager.totalRevenueSwept(), 0);
-        assertEq(manager.pendingRevenue(), usdc.balanceOf(address(manager)));
+        assertEq(manager.pendingRevenue(), 0);
         assertEq(subNft.balanceOf(alice), 1, "NFT must not be re-minted");
     }
 

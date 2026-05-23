@@ -73,18 +73,17 @@ contract BuyPackagePassTest is SubscriptionTestBase {
         assertEq(subNft.balanceOf(alice), 1);
         assertEq(subNft.ownerOf(subNft.tokenIdOf(alice)), alice);
 
-        // Treasury receives nothing synchronously — pass revenue stays on the manager awaiting sweep.
-        assertEq(usdc.balanceOf(treasury) - treasuryBefore, 0);
+        // Pass revenue routes straight to treasury.
+        assertEq(usdc.balanceOf(treasury) - treasuryBefore, 200e6);
         assertEq(aliceBefore - usdc.balanceOf(alice), 200e6);
-        // Only the pass price — alice never called buySubscription.
-        assertEq(usdc.balanceOf(address(manager)), 200e6);
+        assertEq(usdc.balanceOf(address(manager)), 0);
 
         assertEq(passNft.ownerOf(passNft.tokenIdOf(alice)), alice);
         assertEq(passNft.tierOf(alice), tier1);
         assertEq(passNft.seatsOf(alice), 5);
 
         assertEq(manager.totalRevenueSwept(), 0);
-        assertEq(manager.pendingRevenue(), 200e6);
+        assertEq(manager.pendingRevenue(), 0);
     }
 
     function test_adminGrantPackagePassHappyPath() public {

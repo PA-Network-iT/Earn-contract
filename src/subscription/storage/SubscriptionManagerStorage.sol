@@ -71,6 +71,9 @@ abstract contract SubscriptionManagerStorage {
     address internal _kycSigner;
     mapping(address user => uint256 nonce) internal _kycNonces;
 
+    // --- treasury (appended in v2 upgrade; was part of __gap on v1 deployments) ---
+    address internal _treasuryWallet;
+
     // --- reserved ---
-    uint256[32] private __gap;
+    uint256[31] private __gap;
 }
