@@ -22,7 +22,9 @@ contract SubscriptionManagerTreasuryUpgradeTest is SubscriptionTestBase {
 
         assertEq(manager.treasuryWallet(), newTreasury);
 
-        _bootstrapPartnerPass(admin, 1);
+        // Admin has only a genesis sub (no pass) -> seats == 0 -> null sponsor fallback
+        // routes revenue to treasury, exercising the rebound treasury wallet.
+        _grantGenesisSubscription(admin);
         uint256 treasuryBefore = usdc.balanceOf(newTreasury);
         vm.prank(alice);
         manager.buySubscription(admin);

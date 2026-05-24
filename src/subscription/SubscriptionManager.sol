@@ -307,9 +307,15 @@ contract SubscriptionManager is
         existing.expiresAt = newExpiresAt;
         existing.sponsor = effectiveSponsor;
 
-        _collectRevenue(msg.sender, _subscriptionPrice);
 
         ISubscriptionNFT(_subscriptionNFT).mint(msg.sender);
+        if (effectiveSponsor != address(0)) {
+            // Direct-to-sponsor payout: full subscription price bypasses the contract balance.
+            IERC20(_paymentToken).safeTransferFrom(msg.sender, effectiveSponsor, _subscriptionPrice);
+        } else {
+            _collectRevenue(msg.sender, _subscriptionPrice);
+        }
+
         emit SubscriptionRevenueToSponsor(msg.sender, effectiveSponsor, _subscriptionPrice);
 
         emit SubscriptionPurchased(msg.sender, effectiveSponsor, nowTs, newExpiresAt, _subscriptionPrice, false);

@@ -73,9 +73,9 @@ contract BuySubscriptionTest is SubscriptionTestBase {
         assertEq(sub.startedAt, uint64(block.timestamp));
         assertEq(sub.expiresAt, uint64(block.timestamp) + SUBSCRIPTION_DURATION);
 
-        // Revenue routes to treasury; sponsor is recorded for graph accounting only.
-        assertEq(usdc.balanceOf(treasury) - treasuryBefore, SUBSCRIPTION_PRICE);
-        assertEq(usdc.balanceOf(admin) - adminBefore, 0);
+        // Revenue routes directly from buyer to sponsor when sponsor has seats; treasury untouched.
+        assertEq(usdc.balanceOf(treasury) - treasuryBefore, 0);
+        assertEq(usdc.balanceOf(admin) - adminBefore, SUBSCRIPTION_PRICE);
         assertEq(aliceBefore - usdc.balanceOf(alice), SUBSCRIPTION_PRICE);
         assertEq(usdc.balanceOf(address(manager)), managerBefore, "manager holds no payment token");
 
@@ -103,6 +103,35 @@ contract BuySubscriptionTest is SubscriptionTestBase {
         assertEq(usdc.balanceOf(admin) - adminBefore, 0);
         assertEq(manager.totalRevenueSwept(), 0);
         assertEq(manager.pendingRevenue(), 0);
+    }
+
+    function test_lastSeatPaysSponsor_thenNextBuyerPaysTreasury() public {
+        // admin has exactly 1 seat -> first buyer (alice) consumes it and admin receives funds;
+        // next buyer (bob) hits null fallback and revenue routes to treasury.
+        _bootstrapPartnerPass(admin, 1);
+
+        uint256 treasuryBefore = usdc.balanceOf(treasury);
+        uint256 adminBefore = usdc.balanceOf(admin);
+        uint256 aliceBefore = usdc.balanceOf(alice);
+        uint256 bobBefore = usdc.balanceOf(bob);
+
+        vm.prank(alice);
+        manager.buySubscription(admin);
+
+        assertEq(manager.subscriptionOf(alice).sponsor, admin, "alice sponsored by admin");
+        assertEq(passNft.seatsOf(admin), 0, "last seat consumed");
+        assertEq(usdc.balanceOf(admin) - adminBefore, SUBSCRIPTION_PRICE, "sponsor paid directly");
+        assertEq(usdc.balanceOf(treasury) - treasuryBefore, 0, "treasury untouched on sponsor route");
+        assertEq(aliceBefore - usdc.balanceOf(alice), SUBSCRIPTION_PRICE);
+
+        vm.prank(bob);
+        manager.buySubscription(admin);
+
+        assertEq(manager.subscriptionOf(bob).sponsor, address(0), "bob falls back to null sponsor");
+        assertEq(usdc.balanceOf(admin) - adminBefore, SUBSCRIPTION_PRICE, "sponsor balance unchanged on fallback");
+        assertEq(usdc.balanceOf(treasury) - treasuryBefore, SUBSCRIPTION_PRICE, "treasury collects fallback revenue");
+        assertEq(bobBefore - usdc.balanceOf(bob), SUBSCRIPTION_PRICE);
+        assertEq(usdc.balanceOf(address(manager)), 0, "manager holds no payment token");
     }
 
     function test_buySubscriptionRevertsOnZeroSponsor() public {
