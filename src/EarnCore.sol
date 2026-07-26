@@ -4,7 +4,6 @@ pragma solidity ^0.8.30;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -24,6 +23,12 @@ import {
 import {WithdrawalLib} from "src/lib/WithdrawalLib.sol";
 import {EarnStorage} from "src/storage/EarnStorage.sol";
 import {ISubscriptionManager} from "src/subscription/ISubscriptionManager.sol";
+import {DelayedUUPSUpgradeable} from "src/upgrade/DelayedUUPSUpgradeable.sol";
+import {
+    TreasuryWalletTimelock,
+    InvalidTreasuryWallet,
+    TreasuryWalletChangeIsTwoStep
+} from "src/treasury/TreasuryWalletTimelock.sol";
 
 error Blacklisted(address account);
 error InvalidApr(uint256 aprBps);
@@ -51,32 +56,47 @@ error InvalidMinimumDeposit(uint256 minimumAssets);
 error InvalidAdmin(address admin);
 error InvalidAsset(address asset);
 error InvalidGenesisTimestamp(uint256 genesisTimestamp);
-error InvalidTreasuryWallet(address treasuryWallet);
 error NotBlacklisted(address account);
 error InvalidForceWithdrawalLot(uint256 lotId);
 error SubscriptionRequired(address user);
 error InvalidSubscriptionManager(address manager);
 
-/// @notice Core contract for the EARN product.
-/// @dev Holds assets, manages lots, and coordinates share accounting.
+/// @title EarnCore
+/// @notice Core contract for the PAiT EARN product: custodies the deposit asset, tracks per-user
+///         lots, and coordinates share accounting against a linearly accruing index.
+/// @dev Security model of this rewrite:
+///      - UUPS upgrades run through `DelayedUUPSUpgradeable` (schedule, wait 24h, execute).
+///      - The treasury wallet rotates through `TreasuryWalletTimelock` (propose, wait 24h, accept).
+///      - Every other admin surface keeps the pre-existing role split from `EarnRoles`.
 contract EarnCore is
     Initializable,
     AccessControlUpgradeable,
     EIP712Upgradeable,
     ReentrancyGuardTransient,
-    UUPSUpgradeable,
+    DelayedUUPSUpgradeable,
+    TreasuryWalletTimelock,
     EarnRoles,
     EarnStorage
 {
     using SafeERC20 for IERC20;
     using IndexLib for EarnTypes.AprVersion[];
 
+    // ===== Business constants =====
+
+    /// @dev Upper bound for any APR configuration (100% in basis points).
     uint256 internal constant MAX_APR_BPS = IndexLib.BPS_DENOMINATOR;
+    /// @dev Fallback minimum deposit (1 USDC) used when the configured value is zero.
     uint256 internal constant DEFAULT_MIN_DEPOSIT = 1e6;
+    /// @dev Delay between scheduling an APR checkpoint and it becoming effective.
     uint256 internal constant APR_UPDATE_DELAY = 24 hours;
+    /// @dev Maximum number of lot slices in a single withdrawal request.
     uint256 internal constant MAX_WITHDRAWAL_BATCH_SIZE = 50;
+    /// @dev Lots younger than this window pay the early withdrawal fee.
     uint256 internal constant EARLY_WITHDRAWAL_WINDOW = 365 days;
+    /// @dev Cumulative deposited amount above which a KYC authorization is mandatory.
     uint256 internal constant KYC_DEPOSIT_THRESHOLD = 1_000e6;
+
+    // ===== Events =====
 
     event Deposited(
         address indexed caller, address indexed receiver, uint256 indexed lotId, uint256 assets, uint256 shares
@@ -102,7 +122,6 @@ contract EarnCore is
     event BufferReplenished(address indexed caller, uint256 amount, uint256 reclassifiedTreasuryAmount);
     event MinimumDepositUpdated(uint256 newMinimumAssets);
     event EarlyWithdrawalFeeUpdated(uint256 newFeeBps);
-    event TreasuryWalletUpdated(address indexed newTreasuryWallet);
     event ShareTokenSet(address indexed shareToken);
     event ForceWithdrawalExecuted(
         address indexed user, uint256 indexed lotId, uint256 assetsPaid, uint256 payoutIndexRay
@@ -112,10 +131,12 @@ contract EarnCore is
     event KycSignerUpdated(address indexed signer);
     event KycAuthorizationConsumed(address indexed user, uint8 indexed scope, uint256 nonce, uint64 expiresAt);
 
+    // ===== Modifiers =====
+
     /// @dev Reverts when the subscription gate is active and `user` has no active subscription.
-    ///      Gate is intentionally permissive while `_subscriptionManager` is zero so that the
-    ///      bootstrap sequence (deploy v2 impl → upgrade → setSubscriptionManager) cannot brick
-    ///      existing users in the short window between the upgrade and the wiring transaction.
+    ///      The gate is intentionally permissive while `_subscriptionManager` is zero so the
+    ///      bootstrap sequence (deploy → wire SubscriptionManager) cannot brick users in the
+    ///      window between deployment and the wiring transaction.
     modifier onlyActiveSubscriber(address user) {
         address manager = _subscriptionManager;
         if (manager != address(0) && !ISubscriptionManager(manager).hasActiveSubscription(user)) {
@@ -137,7 +158,8 @@ contract EarnCore is
     /// @param treasuryWallet_ Wallet that receives the treasury portion of deposits.
     /// @param genesisTimestamp Index epoch start. Can be in the past (retroactive launch)
     ///        or in the future (scheduled launch). Must not be zero.
-    /// @param initialAprBps APR in basis points active from genesis. Pass 0 for a flat index until the first setApr call.
+    /// @param initialAprBps APR in basis points active from genesis. Pass 0 for a flat index until
+    ///        the first `setApr` call.
     function initialize(
         address admin,
         address asset_,
@@ -160,6 +182,8 @@ contract EarnCore is
 
         __AccessControl_init();
         __EIP712_init("PAiT Earn KYC", "1");
+        __DelayedUUPS_init();
+
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(PARAMETER_MANAGER_ROLE, admin);
         _grantRole(TREASURY_MANAGER_ROLE, admin);
@@ -169,7 +193,7 @@ contract EarnCore is
         _grantRole(UPGRADER_ROLE, admin);
 
         _asset = asset_;
-        _treasuryWallet = treasuryWallet_;
+        _initializeTreasuryWallet(treasuryWallet_);
         _aprVersions.push(
             EarnTypes.AprVersion({
                 startTimestamp: uint64(genesisTimestamp),
@@ -188,16 +212,14 @@ contract EarnCore is
         return uint32(initialAprBps);
     }
 
-    // ===== Configuration =====
+    // ===== Views: configuration =====
 
     /// @notice Returns the registered share token.
-    /// @return Share token address.
     function shareToken() external view returns (address) {
         return _shareToken;
     }
 
-    /// @notice Returns the effective minimum deposit.
-    /// @return Minimum deposit in asset units.
+    /// @notice Returns the effective minimum deposit in asset units.
     function minDeposit() external view returns (uint256) {
         return _effectiveMinDeposit();
     }
@@ -207,8 +229,40 @@ contract EarnCore is
         return _earlyWithdrawalFeeBps;
     }
 
-    /// @notice Registers the share token used by the core.
-    /// @param shareToken_ Share token proxy address.
+    /// @inheritdoc TreasuryWalletTimelock
+    function treasuryWallet() public view override returns (address) {
+        return _treasuryWallet;
+    }
+
+    /// @notice Returns the currently wired SubscriptionManager. Zero means the gate is inactive.
+    function subscriptionManager() external view returns (address manager) {
+        return _subscriptionManager;
+    }
+
+    /// @notice Returns the backend signer trusted for KYC authorizations.
+    function kycSigner() external view returns (address signer) {
+        return _kycSigner;
+    }
+
+    /// @notice Returns the next KYC authorization nonce expected for `user`.
+    function kycNonce(address user) external view returns (uint256 nonce) {
+        return _kycNonces[user];
+    }
+
+    /// @notice Returns capped cumulative deposits used by the KYC threshold gate.
+    function cumulativeDeposited(address user) external view returns (uint256 assets) {
+        return _cumulativeDeposited[user];
+    }
+
+    /// @notice Returns the available liquidity in the contract (actual asset balance).
+    function availableLiquidity() external view returns (uint256) {
+        return _availableLiquidity();
+    }
+
+    // ===== Admin: wiring =====
+
+    /// @notice Registers the share token used by the core. One-shot binding.
+    /// @param shareToken_ Share token proxy address, owned by this core.
     function setShareToken(address shareToken_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (shareToken_ == address(0) || shareToken_.code.length == 0) {
             revert InvalidShareToken(shareToken_);
@@ -222,6 +276,61 @@ contract EarnCore is
         _shareToken = shareToken_;
         emit ShareTokenSet(shareToken_);
     }
+
+    /// @notice Wires the SubscriptionManager that gates user-facing operations.
+    /// @param manager SubscriptionManager proxy address. Must be non-zero and contain bytecode.
+    function setSubscriptionManager(address manager) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (manager == address(0) || manager.code.length == 0) {
+            revert InvalidSubscriptionManager(manager);
+        }
+        _subscriptionManager = manager;
+        emit SubscriptionManagerSet(manager);
+    }
+
+    /// @notice Sets the backend signer trusted for EIP-712 KYC authorizations.
+    function setKycSigner(address signer) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setKycSigner(signer);
+    }
+
+    /// @notice Initializes KYC EIP-712 state after upgrading an already-initialized proxy.
+    /// @dev Legacy migration hook kept for proxies deployed before the KYC gate existed.
+    function initializeKycSigner(address signer) external onlyRole(DEFAULT_ADMIN_ROLE) reinitializer(3) {
+        __EIP712_init("PAiT Earn KYC", "1");
+        _setKycSigner(signer);
+    }
+
+    // ===== Admin: treasury wallet (two-step, timelocked) =====
+
+    /// @notice Starts a treasury wallet rotation. Effective after `TREASURY_WALLET_CHANGE_DELAY`.
+    /// @param newTreasuryWallet Candidate wallet.
+    function proposeTreasuryWallet(address newTreasuryWallet) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _proposeTreasuryWallet(newTreasuryWallet);
+    }
+
+    /// @notice Installs a previously proposed treasury wallet once the delay has elapsed.
+    /// @param expectedTreasuryWallet Address the caller expects to be pending.
+    function acceptTreasuryWallet(address expectedTreasuryWallet) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _acceptTreasuryWallet(expectedTreasuryWallet);
+    }
+
+    /// @notice Drops the pending treasury wallet rotation.
+    function cancelTreasuryWalletProposal() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _cancelTreasuryWalletProposal();
+    }
+
+    /// @notice Deprecated single-step setter, permanently disabled.
+    /// @dev Kept so that stale ops tooling fails loudly instead of silently targeting a function
+    ///      that no longer exists. Use `proposeTreasuryWallet` + `acceptTreasuryWallet`.
+    function setTreasuryWallet(address) external pure {
+        revert TreasuryWalletChangeIsTwoStep();
+    }
+
+    /// @dev Persists the accepted treasury wallet into `EarnStorage`.
+    function _writeTreasuryWallet(address newTreasuryWallet) internal override {
+        _treasuryWallet = newTreasuryWallet;
+    }
+
+    // ===== Admin: parameters =====
 
     /// @notice Updates the minimum deposit.
     /// @param newMinimumAssets Minimum deposit in asset units.
@@ -243,76 +352,41 @@ contract EarnCore is
         emit EarlyWithdrawalFeeUpdated(newFeeBps);
     }
 
-    /// @notice Returns the treasury wallet address.
-    /// @return Treasury wallet address.
-    function treasuryWallet() external view returns (address) {
-        return _treasuryWallet;
-    }
-
-    /// @notice Returns the currently wired SubscriptionManager. Zero means gate is inactive.
-    /// @return manager SubscriptionManager address.
-    function subscriptionManager() external view returns (address manager) {
-        return _subscriptionManager;
-    }
-
-    /// @notice Returns the backend signer trusted for KYC authorizations.
-    function kycSigner() external view returns (address signer) {
-        return _kycSigner;
-    }
-
-    /// @notice Returns the next KYC authorization nonce expected for `user`.
-    function kycNonce(address user) external view returns (uint256 nonce) {
-        return _kycNonces[user];
-    }
-
-    /// @notice Returns capped cumulative deposits used by the KYC threshold gate.
-    function cumulativeDeposited(address user) external view returns (uint256 assets) {
-        return _cumulativeDeposited[user];
-    }
-
-    /// @notice Wires the SubscriptionManager that gates user-facing operations.
-    /// @param manager SubscriptionManager proxy address. Must be non-zero and contain bytecode.
-    function setSubscriptionManager(address manager) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (manager == address(0) || manager.code.length == 0) {
-            revert InvalidSubscriptionManager(manager);
+    /// @notice Schedules a new APR checkpoint, effective after `APR_UPDATE_DELAY`.
+    /// @param newAprBps APR in basis points.
+    function setApr(uint256 newAprBps) external onlyRole(PARAMETER_MANAGER_ROLE) {
+        if (newAprBps > MAX_APR_BPS) {
+            revert InvalidApr(newAprBps);
         }
-        _subscriptionManager = manager;
-        emit SubscriptionManagerSet(manager);
-    }
-
-    /// @notice Sets the backend signer trusted for EIP-712 KYC authorizations.
-    function setKycSigner(address signer) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _setKycSigner(signer);
-    }
-
-    /// @notice Initializes KYC EIP-712 state after upgrading an already-initialized proxy.
-    function initializeKycSigner(address signer) external onlyRole(DEFAULT_ADMIN_ROLE) reinitializer(3) {
-        __EIP712_init("PAiT Earn KYC", "1");
-        _setKycSigner(signer);
-    }
-
-    function _setKycSigner(address signer) internal {
-        if (signer == address(0) || signer.code.length != 0) {
-            revert InvalidKycSigner(signer);
+        uint256 effectiveAt = block.timestamp + APR_UPDATE_DELAY;
+        uint256 versionCount = _aprVersions.length;
+        if (versionCount != 0) {
+            uint256 latestVersionStart = _aprVersions[versionCount - 1].startTimestamp;
+            if (latestVersionStart > block.timestamp) {
+                revert PendingAprUpdate(latestVersionStart);
+            }
         }
-        _kycSigner = signer;
-        emit KycSignerUpdated(signer);
+        _aprVersions.appendAprVersion(newAprBps, effectiveAt);
+        emit AprUpdateScheduled(newAprBps, effectiveAt);
     }
 
-    /// @notice Updates the treasury wallet address.
-    /// @param newTreasuryWallet New treasury wallet address.
-    function setTreasuryWallet(address newTreasuryWallet) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (newTreasuryWallet == address(0)) {
-            revert InvalidTreasuryWallet(newTreasuryWallet);
+    /// @notice Updates the treasury ratio applied to incoming deposits.
+    /// @param newRatioBps Treasury ratio in basis points.
+    function setTreasuryRatio(uint256 newRatioBps) external onlyRole(PARAMETER_MANAGER_ROLE) {
+        if (newRatioBps > IndexLib.BPS_DENOMINATOR) {
+            revert InvalidTreasuryRatio(newRatioBps);
         }
-        _treasuryWallet = newTreasuryWallet;
-        emit TreasuryWalletUpdated(newTreasuryWallet);
+        _treasuryRatioBps = newRatioBps;
+        emit TreasuryRatioUpdated(newRatioBps);
     }
 
-    /// @notice Returns the available liquidity in the contract (actual USDC balance minus reserves).
-    /// @return Available liquidity in asset units.
-    function availableLiquidity() external view returns (uint256) {
-        return _availableLiquidity();
+    /// @notice Updates withdrawal pause switches.
+    /// @param requestPaused New request pause flag.
+    /// @param executePaused New execute pause flag.
+    function setWithdrawalPause(bool requestPaused, bool executePaused) external onlyRole(PAUSER_ROLE) {
+        _requestWithdrawalPaused = requestPaused;
+        _executeWithdrawalPaused = executePaused;
+        emit WithdrawalPauseUpdated(requestPaused, executePaused);
     }
 
     // ===== User actions =====
@@ -330,7 +404,7 @@ contract EarnCore is
         return _deposit(assets, receiver, "");
     }
 
-    /// @notice Deposits assets and opens a new lot, with optional KYC authorization.
+    /// @notice Deposits assets and opens a new lot, with an explicit KYC authorization.
     /// @param assets Asset amount in token decimals.
     /// @param receiver Receiver of the new lot.
     /// @param kycAuthorization ABI-encoded `(uint64 expiresAt, uint256 nonce, bytes signature)`.
@@ -344,67 +418,9 @@ contract EarnCore is
         return _deposit(assets, receiver, kycAuthorization);
     }
 
-    function _deposit(uint256 assets, address receiver, bytes memory kycAuthorization)
-        internal
-        returns (uint256 lotId)
-    {
-        _requireNotBlacklisted(msg.sender);
-        _requireNotBlacklisted(receiver);
-        if (receiver == address(0)) {
-            revert InvalidReceiver(receiver);
-        }
-        uint256 minimumDeposit = _effectiveMinDeposit();
-        if (assets < minimumDeposit) {
-            revert DepositBelowMinimum(assets, minimumDeposit);
-        }
-
-        uint256 indexRay = currentIndex();
-        uint256 shareAmount = IndexLib.previewSharesForDeposit(assets, indexRay);
-        if (shareAmount == 0) {
-            revert ZeroSharesMinted(assets, indexRay);
-        }
-
-        _enforceDepositKyc(receiver, assets, kycAuthorization);
-
-        uint256 treasuryShare = (assets * _treasuryRatioBps) / IndexLib.BPS_DENOMINATOR;
-        uint256 bufferShare = assets - treasuryShare;
-
-        IERC20(_asset).safeTransferFrom(msg.sender, address(this), bufferShare);
-        if (treasuryShare > 0) {
-            IERC20(_asset).safeTransferFrom(msg.sender, _treasuryWallet, treasuryShare);
-        }
-
-        _nextLotId += 1;
-
-        _totals.userPrincipalLiability += assets;
-
-        _lots[_nextLotId] = EarnTypes.Lot({
-            id: _nextLotId,
-            owner: receiver,
-            principalAssets: assets,
-            shareAmount: shareAmount,
-            entryIndexRay: indexRay,
-            lastIndexRay: indexRay,
-            frozenIndexRay: 0,
-            openedAt: uint64(block.timestamp),
-            frozenAt: 0,
-            isFrozen: false,
-            isClosed: false
-        });
-
-        _userLotIds[receiver].push(_nextLotId);
-
-        _totalUncappedShares += shareAmount;
-        _totalUncappedPrincipal += assets;
-
-        EarnShareToken(_shareToken).mint(receiver, shareAmount);
-        lotId = _nextLotId;
-        emit Deposited(msg.sender, receiver, lotId, assets, shareAmount);
-
-        return lotId;
-    }
-
     /// @notice Creates a withdrawal request for one or more lots.
+    /// @dev Freezes the index for the requested slices and locks the corresponding shares. The
+    ///      request becomes executable after `WithdrawalLib.WITHDRAWAL_LOCK_PERIOD` (24h).
     /// @param withdrawals Lot slices to withdraw as one atomic request.
     function requestWithdrawal(EarnTypes.WithdrawalLotInput[] calldata withdrawals)
         external
@@ -519,7 +535,7 @@ contract EarnCore is
         emit WithdrawalRequested(msg.sender, requestId, lotIds, shareAmounts, assetAmountSnapshot, feeAmountSnapshot);
     }
 
-    /// @notice Cancels the caller's active withdrawal request.
+    /// @notice Cancels the caller's active withdrawal request and restores the affected lots.
     function cancelWithdrawal() external nonReentrant onlyActiveSubscriber(msg.sender) {
         _requireNotBlacklisted(msg.sender);
         uint256 requestId = _activeWithdrawalRequestIds[msg.sender];
@@ -537,8 +553,8 @@ contract EarnCore is
         emit WithdrawalCancelled(request.owner, requestId, lotIds);
     }
 
-    /// @notice Executes the caller's active withdrawal request.
-    /// @return assetsPaid Asset amount paid to the caller.
+    /// @notice Executes the caller's active withdrawal request after the 24h lock.
+    /// @return assetsPaid Asset amount paid to the caller, net of the early withdrawal fee.
     function executeWithdrawal() external nonReentrant onlyActiveSubscriber(msg.sender) returns (uint256 assetsPaid) {
         _requireNotBlacklisted(msg.sender);
 
@@ -586,37 +602,11 @@ contract EarnCore is
         IERC20(_asset).safeTransfer(request.owner, assetsPaid);
     }
 
-    /// @notice Schedules a new APR checkpoint.
-    /// @param newAprBps APR in basis points.
-    function setApr(uint256 newAprBps) external onlyRole(PARAMETER_MANAGER_ROLE) {
-        if (newAprBps > MAX_APR_BPS) {
-            revert InvalidApr(newAprBps);
-        }
-        uint256 effectiveAt = block.timestamp + APR_UPDATE_DELAY;
-        uint256 versionCount = _aprVersions.length;
-        if (versionCount != 0) {
-            uint256 latestVersionStart = _aprVersions[versionCount - 1].startTimestamp;
-            if (latestVersionStart > block.timestamp) {
-                revert PendingAprUpdate(latestVersionStart);
-            }
-        }
-        _aprVersions.appendAprVersion(newAprBps, effectiveAt);
-        emit AprUpdateScheduled(newAprBps, effectiveAt);
-    }
-
-    /// @notice Updates the treasury ratio.
-    /// @param newRatioBps Treasury ratio in basis points.
-    function setTreasuryRatio(uint256 newRatioBps) external onlyRole(PARAMETER_MANAGER_ROLE) {
-        if (newRatioBps > IndexLib.BPS_DENOMINATOR) {
-            revert InvalidTreasuryRatio(newRatioBps);
-        }
-        _treasuryRatioBps = newRatioBps;
-        emit TreasuryRatioUpdated(newRatioBps);
-    }
+    // ===== Compliance =====
 
     /// @notice Updates blacklist status for an account.
-    /// @dev Blacklisting records a cutoff timestamp for existing lots.
-    /// @dev Unblacklisting reopens access checks but does not remove that historical cutoff.
+    /// @dev Blacklisting records a cutoff timestamp for existing lots. Unblacklisting reopens
+    ///      access checks and restores uncapped yield tracking for still-open lots.
     /// @param account Account to update.
     /// @param isBlacklisted_ New blacklist flag.
     function setBlacklist(address account, bool isBlacklisted_) external onlyRole(COMPLIANCE_ROLE) {
@@ -632,7 +622,6 @@ contract EarnCore is
     }
 
     /// @notice Force-withdraws a blacklisted user's lot at the capped index.
-    /// @dev Used when compliance decides the user should not continue using the protocol.
     /// @param user Blacklisted account whose lot is being closed.
     /// @param lotId Lot to force-close.
     /// @return assetsPaid Amount transferred to the user.
@@ -689,14 +678,7 @@ contract EarnCore is
         IERC20(_asset).safeTransfer(user, assetsPaid);
     }
 
-    /// @notice Updates withdrawal pause switches.
-    /// @param requestPaused New request pause flag.
-    /// @param executePaused New execute pause flag.
-    function setWithdrawalPause(bool requestPaused, bool executePaused) external onlyRole(PAUSER_ROLE) {
-        _requestWithdrawalPaused = requestPaused;
-        _executeWithdrawalPaused = executePaused;
-        emit WithdrawalPauseUpdated(requestPaused, executePaused);
-    }
+    // ===== Treasury operations =====
 
     /// @notice Reports treasury assets into protocol accounting.
     /// @param assets Treasury asset amount.
@@ -736,22 +718,9 @@ contract EarnCore is
         emit BufferReplenished(msg.sender, amount, reclassifiedTreasuryAssets);
     }
 
-    /// @notice Upgrades the implementation and optionally executes setup logic.
-    /// @param newImplementation New implementation address.
-    /// @param data Optional setup calldata.
-    function upgradeToAndCall(address newImplementation, bytes memory data) public payable override(UUPSUpgradeable) {
-        super.upgradeToAndCall(newImplementation, data);
-    }
+    // ===== Views: accounting =====
 
-    /// @dev Restricts upgrades to the upgrader role.
-    function _authorizeUpgrade(address) internal view override {
-        if (!hasRole(UPGRADER_ROLE, msg.sender)) {
-            revert UnauthorizedUpgrade(msg.sender);
-        }
-    }
-
-    /// @notice Returns the current protocol index.
-    /// @return Index in ray precision.
+    /// @notice Returns the current protocol index in ray precision.
     function currentIndex() public view returns (uint256) {
         return _aprVersions.currentIndex(block.timestamp);
     }
@@ -772,24 +741,19 @@ contract EarnCore is
     }
 
     /// @notice Returns the number of lots created for an owner.
-    /// @param owner Owner address.
-    /// @return Number of tracked lots.
     function ownerLotCount(address owner) external view returns (uint256) {
         return _userLotIds[owner].length;
     }
 
     /// @notice Returns a lot by id.
-    /// @param lotId Lot identifier.
-    /// @return Lot view.
     function lot(uint256 lotId) external view returns (EarnTypes.Lot memory) {
         return _lots[lotId];
     }
 
-    /// @notice Returns a slice of lots created for an owner.
+    /// @notice Returns a slice of lots created for an owner, in creation order.
     /// @param owner Owner address.
     /// @param offset Zero based start index.
     /// @param limit Maximum number of lots to return.
-    /// @return lots Lot views in creation order.
     function lotsByOwner(address owner, uint256 offset, uint256 limit)
         external
         view
@@ -799,14 +763,11 @@ contract EarnCore is
     }
 
     /// @notice Returns the active withdrawal request for an owner.
-    /// @param owner Owner address.
-    /// @return requestView Withdrawal request view.
     function withdrawalRequest(address owner) external view returns (EarnTypes.WithdrawalRequest memory requestView) {
         return _withdrawalRequests[_activeWithdrawalRequestIds[owner]];
     }
 
-    /// @notice Returns aggregate protocol totals.
-    /// @return totalsView Product totals view.
+    /// @notice Returns aggregate protocol totals with a freshly materialized yield liability.
     function totals() external view returns (EarnTypes.ProductTotals memory totalsView) {
         totalsView = _totals;
         uint256 uncappedAssetValue = IndexLib.previewAssetsForShares(_totalUncappedShares, currentIndex());
@@ -817,79 +778,96 @@ contract EarnCore is
     }
 
     /// @notice Returns blacklist status for an account.
-    /// @param account Account to query.
-    /// @return Whether the account is blacklisted.
     function isBlacklisted(address account) external view returns (bool) {
         return _blacklisted[account];
     }
 
     /// @notice Returns whether withdrawal requests are paused.
-    /// @return Pause flag.
     function requestWithdrawalPaused() external view returns (bool) {
         return _requestWithdrawalPaused;
     }
 
     /// @notice Returns whether withdrawal execution is paused.
-    /// @return Pause flag.
     function executeWithdrawalPaused() external view returns (bool) {
         return _executeWithdrawalPaused;
     }
 
-    // ===== Internal helpers =====
+    // ===== Internal: upgrade authority =====
 
-    /// @dev Reverts when an account is blacklisted.
-    function _requireNotBlacklisted(address account) internal view {
-        if (_blacklisted[account]) {
-            revert Blacklisted(account);
+    /// @dev Only `UPGRADER_ROLE` may schedule, cancel, or execute an implementation change.
+    function _checkUpgradeAuthority(address account) internal view override {
+        if (!hasRole(UPGRADER_ROLE, account)) {
+            revert UnauthorizedUpgrade(account);
         }
     }
 
-    /// @dev Materializes a paginated slice of lot views from a stored id registry.
-    function _lotsFromIds(uint256[] storage lotIds, uint256 offset, uint256 limit)
+    // ===== Internal: deposits =====
+
+    function _deposit(uint256 assets, address receiver, bytes memory kycAuthorization)
         internal
-        view
-        returns (EarnTypes.Lot[] memory lots)
+        returns (uint256 lotId)
     {
-        uint256 length = lotIds.length;
-        if (offset >= length || limit == 0) {
-            return new EarnTypes.Lot[](0);
+        _requireNotBlacklisted(msg.sender);
+        _requireNotBlacklisted(receiver);
+        if (receiver == address(0)) {
+            revert InvalidReceiver(receiver);
+        }
+        uint256 minimumDeposit = _effectiveMinDeposit();
+        if (assets < minimumDeposit) {
+            revert DepositBelowMinimum(assets, minimumDeposit);
         }
 
-        uint256 remaining = length - offset;
-        uint256 pageSize = limit > remaining ? remaining : limit;
-        uint256 end = offset + pageSize;
-
-        lots = new EarnTypes.Lot[](end - offset);
-        for (uint256 i = offset; i < end; ++i) {
-            lots[i - offset] = _lots[lotIds[i]];
+        uint256 indexRay = currentIndex();
+        uint256 shareAmount = IndexLib.previewSharesForDeposit(assets, indexRay);
+        if (shareAmount == 0) {
+            revert ZeroSharesMinted(assets, indexRay);
         }
-        return lots;
-    }
 
-    /// @dev Returns treasury assets that can leave the contract without touching reserved balances.
-    function _transferableTreasuryAssets() internal view returns (uint256 available) {
-        uint256 liquidBalance = IERC20(_asset).balanceOf(address(this));
+        _enforceDepositKyc(receiver, assets, kycAuthorization);
 
-        available = liquidBalance;
-        if (available > _totals.treasuryReportedAssets) {
-            available = _totals.treasuryReportedAssets;
+        uint256 treasuryShare = (assets * _treasuryRatioBps) / IndexLib.BPS_DENOMINATOR;
+        uint256 bufferShare = assets - treasuryShare;
+
+        IERC20(_asset).safeTransferFrom(msg.sender, address(this), bufferShare);
+        if (treasuryShare > 0) {
+            IERC20(_asset).safeTransferFrom(msg.sender, _treasuryWallet, treasuryShare);
         }
+
+        _nextLotId += 1;
+
+        _totals.userPrincipalLiability += assets;
+
+        _lots[_nextLotId] = EarnTypes.Lot({
+            id: _nextLotId,
+            owner: receiver,
+            principalAssets: assets,
+            shareAmount: shareAmount,
+            entryIndexRay: indexRay,
+            lastIndexRay: indexRay,
+            frozenIndexRay: 0,
+            openedAt: uint64(block.timestamp),
+            frozenAt: 0,
+            isFrozen: false,
+            isClosed: false
+        });
+
+        _userLotIds[receiver].push(_nextLotId);
+
+        _totalUncappedShares += shareAmount;
+        _totalUncappedPrincipal += assets;
+
+        EarnShareToken(_shareToken).mint(receiver, shareAmount);
+        lotId = _nextLotId;
+        emit Deposited(msg.sender, receiver, lotId, assets, shareAmount);
+
+        return lotId;
     }
 
-    /// @dev Returns the available liquidity derived from the actual USDC balance.
-    function _availableLiquidity() internal view returns (uint256) {
-        return IERC20(_asset).balanceOf(address(this));
-    }
+    // ===== Internal: KYC =====
 
-    /// @dev Returns the configured minimum deposit or the legacy default.
-    function _effectiveMinDeposit() internal view returns (uint256) {
-        uint256 configuredMinDeposit = _minDeposit;
-        if (configuredMinDeposit == 0) {
-            return DEFAULT_MIN_DEPOSIT;
-        }
-        return configuredMinDeposit;
-    }
-
+    /// @dev Enforces the cumulative-deposit KYC threshold. Below the threshold deposits flow
+    ///      freely; the transaction that crosses it (and every later one) needs a backend-signed
+    ///      authorization spent by the receiver themselves.
     function _enforceDepositKyc(address receiver, uint256 assets, bytes memory kycAuthorization) internal {
         uint256 deposited = _cumulativeDeposited[receiver];
 
@@ -941,6 +919,69 @@ contract EarnCore is
         emit KycAuthorizationConsumed(user, scope, nonce, expiresAt);
     }
 
+    function _setKycSigner(address signer) internal {
+        if (signer == address(0) || signer.code.length != 0) {
+            revert InvalidKycSigner(signer);
+        }
+        _kycSigner = signer;
+        emit KycSignerUpdated(signer);
+    }
+
+    // ===== Internal: helpers =====
+
+    /// @dev Reverts when an account is blacklisted.
+    function _requireNotBlacklisted(address account) internal view {
+        if (_blacklisted[account]) {
+            revert Blacklisted(account);
+        }
+    }
+
+    /// @dev Materializes a paginated slice of lot views from a stored id registry.
+    function _lotsFromIds(uint256[] storage lotIds, uint256 offset, uint256 limit)
+        internal
+        view
+        returns (EarnTypes.Lot[] memory lots)
+    {
+        uint256 length = lotIds.length;
+        if (offset >= length || limit == 0) {
+            return new EarnTypes.Lot[](0);
+        }
+
+        uint256 remaining = length - offset;
+        uint256 pageSize = limit > remaining ? remaining : limit;
+        uint256 end = offset + pageSize;
+
+        lots = new EarnTypes.Lot[](end - offset);
+        for (uint256 i = offset; i < end; ++i) {
+            lots[i - offset] = _lots[lotIds[i]];
+        }
+        return lots;
+    }
+
+    /// @dev Returns treasury assets that can leave the contract without touching reserved balances.
+    function _transferableTreasuryAssets() internal view returns (uint256 available) {
+        uint256 liquidBalance = IERC20(_asset).balanceOf(address(this));
+
+        available = liquidBalance;
+        if (available > _totals.treasuryReportedAssets) {
+            available = _totals.treasuryReportedAssets;
+        }
+    }
+
+    /// @dev Returns the available liquidity derived from the actual asset balance.
+    function _availableLiquidity() internal view returns (uint256) {
+        return IERC20(_asset).balanceOf(address(this));
+    }
+
+    /// @dev Returns the configured minimum deposit or the legacy default.
+    function _effectiveMinDeposit() internal view returns (uint256) {
+        uint256 configuredMinDeposit = _minDeposit;
+        if (configuredMinDeposit == 0) {
+            return DEFAULT_MIN_DEPOSIT;
+        }
+        return configuredMinDeposit;
+    }
+
     /// @dev Reverses the effects of blacklisting for every open lot owned by a user.
     ///      Moves non-frozen lots from capped back to uncapped yield tracking.
     function _rehabilitateUserLots(address user) internal {
@@ -974,8 +1015,8 @@ contract EarnCore is
         }
     }
 
-    /// @dev Records the first blacklist cutoff for every open lot owned by a user
-    ///      and moves non-frozen lots from uncapped to capped yield tracking.
+    /// @dev Records the first blacklist cutoff for every open lot owned by a user and moves
+    ///      non-frozen lots from uncapped to capped yield tracking.
     function _capBlacklistedUserLots(address user, uint64 cappedAt) internal {
         uint256[] storage lotIds = _userLotIds[user];
         uint256 cappedIndex = _aprVersions.currentIndex(cappedAt);
@@ -1022,6 +1063,7 @@ contract EarnCore is
         return false;
     }
 
+    /// @dev Fee charged when a lot slice is withdrawn inside the first year after it was opened.
     function _earlyWithdrawalFee(EarnTypes.Lot storage lotRef, uint256 assetAmount) internal view returns (uint256) {
         uint256 feeBps = _earlyWithdrawalFeeBps;
         if (feeBps == 0 || block.timestamp >= uint256(lotRef.openedAt) + EARLY_WITHDRAWAL_WINDOW) {
@@ -1105,7 +1147,7 @@ contract EarnCore is
         }
     }
 
-    /// @dev Returns a lot-level cutoff, falling back to legacy account-level blacklist state if needed.
+    /// @dev Returns a lot-level cutoff, falling back to account-level blacklist state if needed.
     function _lotAccrualCapAt(EarnTypes.Lot storage userLot) internal view returns (uint256 cappedAt) {
         cappedAt = _lotAccrualCaps[userLot.id];
         if (cappedAt != 0) {

@@ -141,7 +141,35 @@ contract UnimplementedEarnCore is IEarnCoreSpec {
 
     function replenishBuffer(uint256) external pure {}
 
+    function scheduleUpgrade(address) external pure {}
+
+    function cancelScheduledUpgrade() external pure {}
+
     function upgradeToAndCall(address, bytes calldata) external pure {}
+
+    function scheduledUpgrade() external pure returns (address, uint64, uint64) {
+        return (address(0), 0, 0);
+    }
+
+    function UPGRADE_DELAY() external pure returns (uint256) {
+        return 24 hours;
+    }
+
+    function proposeTreasuryWallet(address) external pure {}
+
+    function acceptTreasuryWallet(address) external pure {}
+
+    function cancelTreasuryWalletProposal() external pure {}
+
+    function pendingTreasuryWallet() external pure returns (address, uint64, uint64) {
+        return (address(0), 0, 0);
+    }
+
+    function setTreasuryWallet(address) external pure {}
+
+    function TREASURY_WALLET_CHANGE_DELAY() external pure returns (uint256) {
+        return 24 hours;
+    }
 
     function availableLiquidity() external pure returns (uint256) {
         return 0;

@@ -150,6 +150,21 @@ abstract contract EarnTestBase is Test {
         );
     }
 
+    /// @notice Schedules `newImplementation` as `admin` and warps to the end of the upgrade
+    ///         timelock so `upgradeToAndCall` becomes executable.
+    function _scheduleAndWarpCoreUpgrade(address newImplementation) internal {
+        _scheduleAndWarpCoreUpgrade(newImplementation, admin);
+    }
+
+    /// @notice Schedules `newImplementation` as `upgrader` and warps past the upgrade timelock.
+    function _scheduleAndWarpCoreUpgrade(address newImplementation, address upgrader) internal {
+        vm.prank(upgrader);
+        core.scheduleUpgrade(newImplementation);
+
+        (,, uint64 executableAt) = core.scheduledUpgrade();
+        vm.warp(executableAt);
+    }
+
     function _singleWithdrawal(uint256 lotId, uint256 shareAmount)
         internal
         pure

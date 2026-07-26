@@ -3,9 +3,12 @@ pragma solidity ^0.8.30;
 
 import {EarnTypes} from "src/types/EarnTypes.sol";
 
-/// @dev Storage layout for `EarnCore`.
-/// @dev Legacy passive-earn storage was removed from this branch, so existing proxy deployments
-///      require a fresh deploy or explicit migration before upgrading to this layout.
+/// @notice Sequential storage layout for `EarnCore`.
+/// @dev Append-only: new variables go at the end and consume slots from `__gap`.
+///
+///      Timelocked security state (pending upgrade, pending treasury wallet) deliberately lives in
+///      namespaced slots inside `DelayedUUPSUpgradeable` / `TreasuryWalletTimelock` instead of this
+///      layout, so those modules can be added to any contract without shifting slots here.
 abstract contract EarnStorage {
     /// @dev Underlying asset used for deposits and withdrawals.
     address internal _asset;
@@ -14,7 +17,7 @@ abstract contract EarnStorage {
 
     /// @dev Monotonic identifier for newly created lots.
     uint256 internal _nextLotId;
-    /// @dev Treasury allocation in basis points.
+    /// @dev Treasury allocation in basis points applied to incoming deposits.
     uint256 internal _treasuryRatioBps;
 
     /// @dev APR checkpoints used for index materialization.
@@ -50,6 +53,7 @@ abstract contract EarnStorage {
     uint256 internal _earlyWithdrawalFeeBps;
 
     /// @dev Treasury wallet that receives the treasury portion of deposits.
+    ///      Rotated exclusively through the two-step flow in `TreasuryWalletTimelock`.
     address internal _treasuryWallet;
 
     /// @dev Total shares of active lots not subject to a blacklist yield cap.

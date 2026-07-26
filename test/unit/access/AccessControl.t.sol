@@ -11,7 +11,8 @@ import {
     InvalidShareToken,
     ShareTokenAlreadySet,
     InvalidAdmin,
-    InvalidAsset
+    InvalidAsset,
+    TreasuryWalletChangeIsTwoStep
 } from "test/shared/interfaces/EarnSpecInterfaces.sol";
 import {EarnCore} from "src/EarnCore.sol";
 import {EarnShareToken} from "src/EarnShareToken.sol";
@@ -146,8 +147,50 @@ contract AccessControlTest is EarnTestBase {
         core.reportTreasuryAssets(123e6);
         assertEq(core.totals().treasuryReportedAssets, 123e6);
 
+        _scheduleAndWarpCoreUpgrade(address(newImplementation), upgrader);
+
         vm.prank(upgrader);
         core.upgradeToAndCall(address(newImplementation), "");
+    }
+
+    function test_scopedRolesCannotScheduleUpgrades() public {
+        EarnCoreV2Mock newImplementation = new EarnCoreV2Mock();
+
+        vm.prank(admin);
+        core.grantRole(core.PARAMETER_MANAGER_ROLE(), parameterManager);
+
+        vm.prank(parameterManager);
+        vm.expectRevert(abi.encodeWithSelector(UnauthorizedUpgrade.selector, parameterManager));
+        core.scheduleUpgrade(address(newImplementation));
+    }
+
+    function test_treasuryWalletRotationIsTwoStepAndAdminOnly() public {
+        address newTreasury = makeAddr("rotatedTreasury");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, alice, core.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        vm.prank(alice);
+        core.proposeTreasuryWallet(newTreasury);
+
+        vm.prank(admin);
+        core.proposeTreasuryWallet(newTreasury);
+        assertEq(core.treasuryWallet(), treasury);
+
+        (,, uint64 executableAt) = core.pendingTreasuryWallet();
+        vm.warp(executableAt);
+
+        vm.prank(admin);
+        core.acceptTreasuryWallet(newTreasury);
+        assertEq(core.treasuryWallet(), newTreasury);
+    }
+
+    function test_deprecatedSetTreasuryWalletAlwaysReverts() public {
+        vm.prank(admin);
+        vm.expectRevert(TreasuryWalletChangeIsTwoStep.selector);
+        core.setTreasuryWallet(makeAddr("bypassAttempt"));
     }
 
     function test_nonAdminCannotGrantRoles() public {

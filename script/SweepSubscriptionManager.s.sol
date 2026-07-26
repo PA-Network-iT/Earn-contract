@@ -7,8 +7,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {SubscriptionManager} from "src/subscription/SubscriptionManager.sol";
 
-/// @notice Sweeps USDC (or any token) still sitting on SubscriptionManager after the v1 era.
-/// @dev    Run once after `UpgradeSubscriptionManager.s.sol` if the proxy held collected revenue.
+/// @notice Sweeps USDC (or any token) sitting on SubscriptionManager.
+/// @dev    Subscription and pass revenue is routed straight to the treasury wallet, so a non-zero
+///         balance here means residual or accidentally-sent tokens. Run whenever the proxy holds
+///         funds that should be moved out.
 ///
 /// Environment variables:
 ///   TREASURY_MANAGER_PRIVATE_KEY — signer with `TREASURY_MANAGER_ROLE`

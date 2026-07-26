@@ -4,25 +4,43 @@ pragma solidity ^0.8.30;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC721Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
+import {DelayedUUPSUpgradeable} from "src/upgrade/DelayedUUPSUpgradeable.sol";
 import {ISubscriptionNFT} from "./ISubscriptionNFT.sol";
 
+/// @dev Reverts on any transfer or approval attempt.
 error SoulboundTransferDisabled();
+/// @dev Reverts when a caller other than the configured manager mints or burns.
 error UnauthorizedManager(address caller);
+/// @dev Reverts when burning a token that was never minted.
 error TokenNotMinted(address owner);
+/// @dev Reverts when minting a token that already exists.
 error TokenAlreadyMinted(address owner);
+/// @dev Reverts when configuring a zero manager.
 error InvalidManager(address manager);
+/// @dev Reverts on a zero address argument.
 error ZeroAddress();
+/// @dev Reverts when an account without `UPGRADER_ROLE` touches the upgrade flow.
 error UnauthorizedUpgrade(address caller);
+/// @dev Reverts when initializing with a zero admin.
 error InvalidAdmin(address admin);
 
+/// @title SubscriptionNFT
 /// @notice Soulbound ERC-721 representing an active PAiT subscription.
-/// @dev `tokenId = uint256(uint160(owner))` for cheap deterministic lookup.
-///      Only the configured `_manager` (SubscriptionManager) may mint / burn.
-contract SubscriptionNFT is Initializable, ERC721Upgradeable, AccessControlUpgradeable, UUPSUpgradeable, ISubscriptionNFT {
+/// @dev `tokenId = uint256(uint160(owner))` for cheap deterministic lookup. Only the configured
+///      `_manager` (SubscriptionManager) may mint or burn. Upgrades run through the 24h timelock in
+///      `DelayedUUPSUpgradeable`.
+contract SubscriptionNFT is
+    Initializable,
+    ERC721Upgradeable,
+    AccessControlUpgradeable,
+    DelayedUUPSUpgradeable,
+    ISubscriptionNFT
+{
+    /// @notice Schedules and executes UUPS upgrades (always behind the 24h upgrade timelock).
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
+    /// @dev SubscriptionManager allowed to mint and burn.
     address internal _manager;
 
     uint256[49] private __gap;
@@ -34,6 +52,8 @@ contract SubscriptionNFT is Initializable, ERC721Upgradeable, AccessControlUpgra
         _disableInitializers();
     }
 
+    /// @notice Initializes the NFT proxy.
+    /// @param admin Address receiving `DEFAULT_ADMIN_ROLE` and `UPGRADER_ROLE`.
     function initialize(address admin) external initializer {
         if (admin == address(0)) {
             revert InvalidAdmin(admin);
@@ -41,11 +61,13 @@ contract SubscriptionNFT is Initializable, ERC721Upgradeable, AccessControlUpgra
 
         __ERC721_init("PAiT Subscription", "PAIT-SUB");
         __AccessControl_init();
+        __DelayedUUPS_init();
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(UPGRADER_ROLE, admin);
     }
 
+    /// @dev Restricts an operation to the configured manager.
     modifier onlyManager() {
         if (msg.sender != _manager) {
             revert UnauthorizedManager(msg.sender);
@@ -62,6 +84,7 @@ contract SubscriptionNFT is Initializable, ERC721Upgradeable, AccessControlUpgra
         emit ManagerUpdated(newManager);
     }
 
+    /// @notice Returns the configured manager.
     function manager() external view returns (address) {
         return _manager;
     }
@@ -94,10 +117,12 @@ contract SubscriptionNFT is Initializable, ERC721Upgradeable, AccessControlUpgra
 
     // ===== Soulbound enforcement =====
 
+    /// @notice Disabled: the token is soulbound.
     function approve(address, uint256) public pure override {
         revert SoulboundTransferDisabled();
     }
 
+    /// @notice Disabled: the token is soulbound.
     function setApprovalForAll(address, bool) public pure override {
         revert SoulboundTransferDisabled();
     }
@@ -111,6 +136,7 @@ contract SubscriptionNFT is Initializable, ERC721Upgradeable, AccessControlUpgra
         return super._update(to, tokenId, auth);
     }
 
+    /// @notice ERC-165 support, combining ERC-721 and AccessControl interface ids.
     function supportsInterface(bytes4 interfaceId)
         public
         view
@@ -120,9 +146,10 @@ contract SubscriptionNFT is Initializable, ERC721Upgradeable, AccessControlUpgra
         return super.supportsInterface(interfaceId);
     }
 
-    function _authorizeUpgrade(address) internal view override {
-        if (!hasRole(UPGRADER_ROLE, msg.sender)) {
-            revert UnauthorizedUpgrade(msg.sender);
+    /// @dev Only `UPGRADER_ROLE` may schedule, cancel, or execute an implementation change.
+    function _checkUpgradeAuthority(address account) internal view override {
+        if (!hasRole(UPGRADER_ROLE, account)) {
+            revert UnauthorizedUpgrade(account);
         }
     }
 }

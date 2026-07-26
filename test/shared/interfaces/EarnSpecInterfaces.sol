@@ -29,6 +29,15 @@ error ShareTokenAlreadySet(address shareToken);
 error InvalidMinimumDeposit(uint256 minimumAssets);
 error InvalidAdmin(address admin);
 error InvalidAsset(address asset);
+error UpgradeImplementationInvalid(address implementation);
+error UpgradeNotScheduled(address implementation);
+error UpgradeDelayNotElapsed(uint256 executableAt, uint256 currentTime);
+error NoScheduledUpgrade();
+error InvalidTreasuryWallet(address treasuryWallet);
+error NoPendingTreasuryWallet();
+error TreasuryWalletDelayNotElapsed(uint256 executableAt, uint256 currentTime);
+error UnexpectedTreasuryWallet(address expected, address pending);
+error TreasuryWalletChangeIsTwoStep();
 
 /// @notice Test-side view of a core lot; mirrors `EarnTypes.Lot` field order exactly.
 struct LotView {
@@ -129,7 +138,22 @@ interface IEarnCoreSpec {
     function reportTreasuryAssets(uint256 assets) external;
     function transferToTreasury(address recipient, uint256 amount) external;
     function replenishBuffer(uint256 amount) external;
+
+    function scheduleUpgrade(address newImplementation) external;
+    function cancelScheduledUpgrade() external;
     function upgradeToAndCall(address newImplementation, bytes calldata data) external;
+    function scheduledUpgrade()
+        external
+        view
+        returns (address implementation, uint64 scheduledAt, uint64 executableAt);
+    function UPGRADE_DELAY() external view returns (uint256);
+
+    function proposeTreasuryWallet(address newTreasuryWallet) external;
+    function acceptTreasuryWallet(address expectedTreasuryWallet) external;
+    function cancelTreasuryWalletProposal() external;
+    function pendingTreasuryWallet() external view returns (address wallet, uint64 proposedAt, uint64 executableAt);
+    function setTreasuryWallet(address newTreasuryWallet) external;
+    function TREASURY_WALLET_CHANGE_DELAY() external view returns (uint256);
 
     function availableLiquidity() external view returns (uint256);
     function treasuryWallet() external view returns (address);
